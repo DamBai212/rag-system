@@ -1,0 +1,26 @@
+[
+  {
+    "id": "docs_0",
+    "text": "Retrieval-Augmented Generation (RAG) is a technique that enhances large language models by retrieving relevant documents before generating a response. Rather than relying solely on parametric knowledge baked into model weights, RAG grounds the LLM's answer in retrieved context, reducing hallucinatio",
+    "source": "docs.txt",
+    "chunk_index": 0
+  },
+  {
+    "id": "docs_1",
+    "text": "answer in retrieved context, reducing hallucinations and improving factual accuracy.\n\nElasticsearch is a distributed search engine built on Apache Lucene. It stores data as JSON documents and makes them searchable using an inverted index. For RAG systems, Elasticsearch serves as the retrieval layer",
+    "source": "docs.txt",
+    "chunk_index": 1
+  },
+  {
+    "id": "docs_2",
+    "text": "tems, Elasticsearch serves as the retrieval layer that returns relevant text chunks for a given user query.\n\nAWS Lambda is a serverless compute service that runs your code in response to events. You pay only for the compute time you consume, making it cost-effective for API workloads with variable t",
+    "source": "docs.txt",
+    "chunk_index": 2
+  },
+  {
+    "id": "docs_3",
+    "text": "t cost-effective for API workloads with variable traffic.",
+    "source": "docs.txt",
+    "chunk_index": 3
+  }
+]
