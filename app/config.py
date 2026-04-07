@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+
+def _read_optional_env(name: str) -> str | None:
+    value = os.getenv(name, "").strip()
+    return value or None
+
+
+def _parse_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"Invalid boolean value: {value!r}")
+
+
+@dataclass(frozen=True)
+class ElasticsearchSettings:
+    cloud_id: str | None
+    endpoint: str | None
+    api_key: str | None
+    username: str | None
+    password: str | None
+    index_name: str = "rag-docs"
+    request_timeout: int = 30
+    verify_certs: bool = True
+
+    @classmethod
+    def from_env(cls) -> "ElasticsearchSettings":
+        cloud_id = _read_optional_env("ELASTIC_CLOUD_ID")
+        endpoint = _read_optional_env("ELASTIC_ENDPOINT")
+        api_key = _read_optional_env("ELASTIC_API_KEY")
+        username = _read_optional_env("ELASTIC_USERNAME")
+        password = _read_optional_env("ELASTIC_PASSWORD")
+        index_name = _read_optional_env("ELASTIC_INDEX") or "rag-docs"
+        timeout_raw = os.getenv("ELASTIC_REQUEST_TIMEOUT", "30").strip()
+        verify_raw = os.getenv("ELASTIC_VERIFY_CERTS", "true")
+
+        if not cloud_id and not endpoint:
+            raise ValueError(
+                "Set ELASTIC_CLOUD_ID or ELASTIC_ENDPOINT before connecting."
+            )
+
+        if not api_key and not (username and password):
+            raise ValueError(
+                "Set ELASTIC_API_KEY or both ELASTIC_USERNAME and ELASTIC_PASSWORD."
+            )
+
+        try:
+            request_timeout = int(timeout_raw)
+        except ValueError as exc:
+            raise ValueError("ELASTIC_REQUEST_TIMEOUT must be an integer.") from exc
+
+        if request_timeout <= 0:
+            raise ValueError("ELASTIC_REQUEST_TIMEOUT must be greater than 0.")
+
+        verify_certs = _parse_bool(verify_raw)
+
+        return cls(
+            cloud_id=cloud_id,
+            endpoint=endpoint,
+            api_key=api_key,
+            username=username,
+            password=password,
+            index_name=index_name,
+            request_timeout=request_timeout,
+            verify_certs=verify_certs,
+        )
+
+    def client_options(self) -> dict[str, object]:
+        options: dict[str, object] = {
+            "request_timeout": self.request_timeout,
+            "verify_certs": self.verify_certs,
+        }
+
+        if self.cloud_id:
+            options["cloud_id"] = self.cloud_id
+        elif self.endpoint:
+            options["hosts"] = [self.endpoint]
+        else:
+            raise ValueError("An Elasticsearch connection target is required.")
+
+        if self.api_key:
+            options["api_key"] = self.api_key
+        elif self.username and self.password:
+            options["basic_auth"] = (self.username, self.password)
+        else:
+            raise ValueError("Elasticsearch authentication is not configured.")
+
+        return options
+
+    def target(self) -> str:
+        if self.cloud_id:
+            return self.cloud_id
+        if self.endpoint:
+            return self.endpoint
+        raise ValueError("An Elasticsearch connection target is required.")
