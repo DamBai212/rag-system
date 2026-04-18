@@ -1,8 +1,8 @@
 # RAG System
 
-This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, and bulk-loads searchable chunks that can later power a grounded AI assistant.
+This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, and retrieves the most relevant context for a user query.
 
-Today, the codebase implements the ingestion and indexing layer. The retrieval API, prompt orchestration, and answer generation layers are the natural next steps.
+Today, the codebase implements the ingestion, indexing, and retrieval layers. Prompt orchestration and answer generation are the natural next steps.
 
 ## Problem Statement
 
@@ -21,7 +21,8 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - Elasticsearch connection configuration via environment variables
 - index creation with strict mappings
 - bulk indexing into Elasticsearch
-- tests for chunking, indexing, and Elasticsearch setup
+- retrieval of top matching chunks from Elasticsearch
+- tests for chunking, indexing, retrieval, and Elasticsearch setup
 
 ## Architecture
 
@@ -42,6 +43,12 @@ scripts/index_chunks.py
     |
     v
 Elasticsearch index (rag-docs)
+    |
+    v
+scripts/search_chunks.py
+    |
+    v
+retrieved context snippets
 ```
 
 ### Target end-to-end architecture
@@ -73,8 +80,10 @@ Internal documents / SOPs / FAQs / runbooks
 - `app/config.py`: centralizes Elasticsearch environment parsing and validation
 - `app/elasticsearch_client.py`: creates the Elasticsearch client
 - `app/indexing.py`: builds index mappings and bulk indexing actions
+- `app/retrieval.py`: builds search queries and normalizes retrieved hits
 - `scripts/check_elasticsearch.py`: verifies cluster connectivity
 - `scripts/index_chunks.py`: creates the index if needed and loads chunk data
+- `scripts/search_chunks.py`: searches indexed chunks from the terminal
 
 ## Setup Instructions
 
@@ -142,7 +151,13 @@ To override the default input file or index name:
 python scripts/index_chunks.py --input data/chunks.json --index rag-docs
 ```
 
-### 7. Run tests
+### 7. Search indexed chunks
+
+```bash
+python scripts/search_chunks.py "What is Retrieval-Augmented Generation?" --top-k 3
+```
+
+### 8. Run tests
 
 ```bash
 PYTHONPATH=. pytest
@@ -192,9 +207,8 @@ For a company scaling Ops and Support, that is more than a technical improvement
 
 ## Current Status
 
-The repository currently covers the ingestion and indexing foundation of a RAG system. The next logical steps are:
+The repository currently covers the ingestion, indexing, and retrieval foundation of a RAG system. The next logical steps are:
 
-- retrieval from Elasticsearch
 - prompt assembly with retrieved context
 - OpenAI response generation
 - an internal API or UI for end users
