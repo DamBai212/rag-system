@@ -18,6 +18,18 @@ def _parse_bool(value: str) -> bool:
     raise ValueError(f"Invalid boolean value: {value!r}")
 
 
+def _parse_positive_int(name: str, value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer.") from exc
+
+    if parsed <= 0:
+        raise ValueError(f"{name} must be greater than 0.")
+
+    return parsed
+
+
 @dataclass(frozen=True)
 class ElasticsearchSettings:
     cloud_id: str | None
@@ -50,14 +62,7 @@ class ElasticsearchSettings:
                 "Set ELASTIC_API_KEY or both ELASTIC_USERNAME and ELASTIC_PASSWORD."
             )
 
-        try:
-            request_timeout = int(timeout_raw)
-        except ValueError as exc:
-            raise ValueError("ELASTIC_REQUEST_TIMEOUT must be an integer.") from exc
-
-        if request_timeout <= 0:
-            raise ValueError("ELASTIC_REQUEST_TIMEOUT must be greater than 0.")
-
+        request_timeout = _parse_positive_int("ELASTIC_REQUEST_TIMEOUT", timeout_raw)
         verify_certs = _parse_bool(verify_raw)
 
         return cls(
@@ -99,3 +104,33 @@ class ElasticsearchSettings:
         if self.endpoint:
             return self.endpoint
         raise ValueError("An Elasticsearch connection target is required.")
+
+
+@dataclass(frozen=True)
+class OpenAISettings:
+    api_key: str
+    model: str = "gpt-4o-mini"
+    max_output_tokens: int = 400
+
+    @classmethod
+    def from_env(cls) -> "OpenAISettings":
+        api_key = _read_optional_env("OPENAI_API_KEY")
+        model = _read_optional_env("OPENAI_MODEL") or "gpt-4o-mini"
+        max_tokens_raw = os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "400").strip()
+
+        if not api_key:
+            raise ValueError("Set OPENAI_API_KEY before generating responses.")
+
+        max_output_tokens = _parse_positive_int(
+            "OPENAI_MAX_OUTPUT_TOKENS",
+            max_tokens_raw,
+        )
+
+        return cls(
+            api_key=api_key,
+            model=model,
+            max_output_tokens=max_output_tokens,
+        )
+
+    def client_options(self) -> dict[str, object]:
+        return {"api_key": self.api_key}

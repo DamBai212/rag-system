@@ -1,8 +1,8 @@
 # RAG System
 
-This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, and retrieves the most relevant context for a user query.
+This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, retrieves the most relevant context for a user query, and generates a grounded answer with OpenAI.
 
-Today, the codebase implements the ingestion, indexing, and retrieval layers. Prompt orchestration and answer generation are the natural next steps.
+Today, the codebase implements the ingestion, indexing, retrieval, and answer-generation layers. The next natural step is exposing the flow through an internal API or UI.
 
 ## Problem Statement
 
@@ -22,7 +22,8 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - index creation with strict mappings
 - bulk indexing into Elasticsearch
 - retrieval of top matching chunks from Elasticsearch
-- tests for chunking, indexing, retrieval, and Elasticsearch setup
+- grounded answer generation with OpenAI
+- tests for chunking, indexing, retrieval, generation, and client setup
 
 ## Architecture
 
@@ -49,6 +50,12 @@ scripts/search_chunks.py
     |
     v
 retrieved context snippets
+    |
+    v
+scripts/answer_question.py
+    |
+    v
+grounded answer with source references
 ```
 
 ### Target end-to-end architecture
@@ -80,10 +87,13 @@ Internal documents / SOPs / FAQs / runbooks
 - `app/config.py`: centralizes Elasticsearch environment parsing and validation
 - `app/elasticsearch_client.py`: creates the Elasticsearch client
 - `app/indexing.py`: builds index mappings and bulk indexing actions
+- `app/openai_client.py`: creates the OpenAI client
 - `app/retrieval.py`: builds search queries and normalizes retrieved hits
+- `app/generation.py`: formats retrieved context and calls OpenAI for grounded answers
 - `scripts/check_elasticsearch.py`: verifies cluster connectivity
 - `scripts/index_chunks.py`: creates the index if needed and loads chunk data
 - `scripts/search_chunks.py`: searches indexed chunks from the terminal
+- `scripts/answer_question.py`: retrieves chunks and generates a grounded answer
 
 ## Setup Instructions
 
@@ -120,10 +130,11 @@ Set one authentication method:
 
 Optional settings:
 
+- `OPENAI_MODEL` defaults to `gpt-4o-mini`
+- `OPENAI_MAX_OUTPUT_TOKENS` defaults to `400`
 - `ELASTIC_INDEX` defaults to `rag-docs`
 - `ELASTIC_VERIFY_CERTS` defaults to `true`
 - `ELASTIC_REQUEST_TIMEOUT` defaults to `30`
-- `OPENAI_API_KEY` can be added now for the future generation layer, although it is not used by the current code yet
 
 ### 4. Generate chunks from the sample document
 
@@ -157,7 +168,13 @@ python scripts/index_chunks.py --input data/chunks.json --index rag-docs
 python scripts/search_chunks.py "What is Retrieval-Augmented Generation?" --top-k 3
 ```
 
-### 8. Run tests
+### 8. Generate a grounded answer
+
+```bash
+python scripts/answer_question.py "How does RAG reduce hallucinations?" --top-k 3
+```
+
+### 9. Run tests
 
 ```bash
 PYTHONPATH=. pytest
@@ -171,7 +188,8 @@ Imagine an internal knowledge assistant for a support team.
 2. Those chunks are indexed in Elasticsearch with source metadata.
 3. A support agent asks: "How do I check whether Elasticsearch is configured correctly?"
 4. The retrieval layer finds the most relevant chunks covering connection targets, authentication, and timeouts.
-5. The LLM generates a concise answer using only the retrieved context, reducing guesswork and making the answer easier to trust.
+5. The generation layer sends the question plus retrieved context to OpenAI.
+6. The LLM returns a concise answer grounded in that context, reducing guesswork and making the answer easier to trust.
 
 That is the core value of this architecture: faster answers, less dependence on tribal knowledge, and more consistent support decisions.
 
@@ -207,8 +225,7 @@ For a company scaling Ops and Support, that is more than a technical improvement
 
 ## Current Status
 
-The repository currently covers the ingestion, indexing, and retrieval foundation of a RAG system. The next logical steps are:
+The repository currently covers the ingestion, indexing, retrieval, and grounded answer-generation foundation of a RAG system. The next logical steps are:
 
-- prompt assembly with retrieved context
-- OpenAI response generation
 - an internal API or UI for end users
+- deployment of the full workflow behind an application boundary
