@@ -1,8 +1,8 @@
 # RAG System
 
-This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, retrieves the most relevant context for a user query, and generates a grounded answer with OpenAI.
+This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, retrieves the most relevant context for a user query, generates a grounded answer with OpenAI, and now exposes that flow through a FastAPI endpoint.
 
-Today, the codebase implements the ingestion, indexing, retrieval, and answer-generation layers. The next natural step is exposing the flow through an internal API or UI.
+Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, and API layers. The next natural steps are deployment, authentication, and an end-user interface.
 
 ## Problem Statement
 
@@ -23,7 +23,8 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - bulk indexing into Elasticsearch
 - retrieval of top matching chunks from Elasticsearch
 - grounded answer generation with OpenAI
-- tests for chunking, indexing, retrieval, generation, and client setup
+- FastAPI application boundary for the full RAG flow
+- tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
 
 ## Architecture
 
@@ -56,6 +57,9 @@ scripts/answer_question.py
     |
     v
 grounded answer with source references
+    |
+    v
+FastAPI /ask endpoint
 ```
 
 ### Target end-to-end architecture
@@ -90,6 +94,8 @@ Internal documents / SOPs / FAQs / runbooks
 - `app/openai_client.py`: creates the OpenAI client
 - `app/retrieval.py`: builds search queries and normalizes retrieved hits
 - `app/generation.py`: formats retrieved context and calls OpenAI for grounded answers
+- `app/pipeline.py`: orchestrates retrieval plus generation for shared CLI/API usage
+- `app/api.py`: exposes the full RAG flow through FastAPI
 - `scripts/check_elasticsearch.py`: verifies cluster connectivity
 - `scripts/index_chunks.py`: creates the index if needed and loads chunk data
 - `scripts/search_chunks.py`: searches indexed chunks from the terminal
@@ -180,6 +186,20 @@ python scripts/answer_question.py "How does RAG reduce hallucinations?" --top-k 
 PYTHONPATH=. pytest
 ```
 
+### 10. Run the API locally
+
+```bash
+uvicorn app.api:app --reload
+```
+
+Example request:
+
+```bash
+curl -X POST http://127.0.0.1:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"How does RAG reduce hallucinations?","top_k":3}'
+```
+
 ## Concrete Use Case Example
 
 Imagine an internal knowledge assistant for a support team.
@@ -225,7 +245,7 @@ For a company scaling Ops and Support, that is more than a technical improvement
 
 ## Current Status
 
-The repository currently covers the ingestion, indexing, retrieval, and grounded answer-generation foundation of a RAG system. The next logical steps are:
+The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, and API foundation of a RAG system. The next logical steps are:
 
-- an internal API or UI for end users
 - deployment of the full workflow behind an application boundary
+- authentication, observability, and UI polish for end users

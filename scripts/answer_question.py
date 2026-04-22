@@ -4,9 +4,8 @@ import argparse
 
 from app.config import ElasticsearchSettings, OpenAISettings
 from app.elasticsearch_client import create_elasticsearch_client
-from app.generation import generate_grounded_answer
 from app.openai_client import create_openai_client
-from app.retrieval import search_chunks
+from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,30 +43,20 @@ def main() -> int:
 
         elastic_client = create_elasticsearch_client(elastic_settings)
         openai_client = create_openai_client(openai_settings)
-        chunks = search_chunks(
+        result = run_rag_pipeline(
             elastic_client,
-            index_name=index_name,
-            query=args.question,
-            top_k=args.top_k,
-        )
-    except Exception as exc:
-        print(f"RAG answer generation failed: {exc}")
-        return 1
-
-    if not chunks:
-        print(f"No retrieved chunks found for question: {args.question}")
-        return 1
-
-    try:
-        result = generate_grounded_answer(
             openai_client,
-            model=model_name,
             question=args.question,
-            chunks=chunks,
+            index_name=index_name,
+            model=model_name,
+            top_k=args.top_k,
             max_output_tokens=openai_settings.max_output_tokens,
         )
+    except NoRetrievedChunksError as exc:
+        print(str(exc))
+        return 1
     except Exception as exc:
-        print(f"OpenAI answer generation failed: {exc}")
+        print(f"RAG answer generation failed: {exc}")
         return 1
 
     print("Answer:\n")
