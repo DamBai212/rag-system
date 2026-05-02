@@ -134,3 +134,15 @@ class OpenAISettings:
 
     def client_options(self) -> dict[str, object]:
         return {"api_key": self.api_key}
+
+
+@dataclass(frozen=True)
+class ApiSettings:
+    api_token: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "ApiSettings":
+        return cls(api_token=_read_optional_env("RAG_API_TOKEN"))
+
+    def auth_enabled(self) -> bool:
+        return bool(self.api_token)

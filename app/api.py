@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Callable
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.config import ElasticsearchSettings, OpenAISettings
+from app.config import ApiSettings, ElasticsearchSettings, OpenAISettings
 from app.elasticsearch_client import create_elasticsearch_client
 from app.openai_client import create_openai_client
 from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
@@ -60,18 +60,40 @@ def build_env_rag_runner() -> Callable[..., dict[str, object]]:
     return rag_runner
 
 
+def require_api_token(
+    authorization: str | None,
+    api_settings: ApiSettings,
+) -> None:
+    if not api_settings.auth_enabled():
+        return
+
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header.")
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or token != api_settings.api_token:
+        raise HTTPException(status_code=401, detail="Invalid API token.")
+
+
 def create_app(
     rag_runner: Callable[..., dict[str, object]] | None = None,
+    api_settings: ApiSettings | None = None,
 ) -> FastAPI:
     app = FastAPI(title="RAG System API", version="0.1.0")
     app.state.rag_runner = rag_runner or build_env_rag_runner()
+    app.state.api_settings = api_settings or ApiSettings.from_env()
 
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.post("/ask", response_model=AskResponse)
-    def ask(request: AskRequest) -> AskResponse:
+    def ask(
+        request: AskRequest,
+        authorization: str | None = Header(default=None),
+    ) -> AskResponse:
+        require_api_token(authorization, app.state.api_settings)
+
         try:
             result = app.state.rag_runner(
                 question=request.question,

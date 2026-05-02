@@ -2,7 +2,7 @@
 
 This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, retrieves the most relevant context for a user query, generates a grounded answer with OpenAI, and now exposes that flow through a FastAPI endpoint.
 
-Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, and API layers. The next natural steps are deployment, authentication, and an end-user interface.
+Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, and API layers. The next natural steps are deployment, richer authentication, and an end-user interface.
 
 ## Problem Statement
 
@@ -24,6 +24,7 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - retrieval of top matching chunks from Elasticsearch
 - grounded answer generation with OpenAI
 - FastAPI application boundary for the full RAG flow
+- optional bearer-token protection for the `/ask` endpoint
 - tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
 
 ## Architecture
@@ -138,6 +139,7 @@ Optional settings:
 
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 - `OPENAI_MAX_OUTPUT_TOKENS` defaults to `400`
+- `RAG_API_TOKEN` enables bearer-token auth for `POST /ask` when set
 - `ELASTIC_INDEX` defaults to `rag-docs`
 - `ELASTIC_VERIFY_CERTS` defaults to `true`
 - `ELASTIC_REQUEST_TIMEOUT` defaults to `30`
@@ -200,6 +202,15 @@ curl -X POST http://127.0.0.1:8000/ask \
   -d '{"question":"How does RAG reduce hallucinations?","top_k":3}'
 ```
 
+If `RAG_API_TOKEN` is set, include a bearer token:
+
+```bash
+curl -X POST http://127.0.0.1:8000/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-token" \
+  -d '{"question":"How does RAG reduce hallucinations?","top_k":3}'
+```
+
 ## Concrete Use Case Example
 
 Imagine an internal knowledge assistant for a support team.
@@ -248,4 +259,4 @@ For a company scaling Ops and Support, that is more than a technical improvement
 The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, and API foundation of a RAG system. The next logical steps are:
 
 - deployment of the full workflow behind an application boundary
-- authentication, observability, and UI polish for end users
+- richer authentication, observability, and UI polish for end users
