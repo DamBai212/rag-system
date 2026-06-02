@@ -5,8 +5,14 @@ from typing import Callable
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.config import ApiSettings, ElasticsearchSettings, OpenAISettings
+from app.config import (
+    ApiSettings,
+    ElasticsearchSettings,
+    ObservabilitySettings,
+    OpenAISettings,
+)
 from app.elasticsearch_client import create_elasticsearch_client
+from app.observability import add_observability_middleware
 from app.openai_client import create_openai_client
 from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
 
@@ -78,10 +84,15 @@ def require_api_token(
 def create_app(
     rag_runner: Callable[..., dict[str, object]] | None = None,
     api_settings: ApiSettings | None = None,
+    observability_settings: ObservabilitySettings | None = None,
 ) -> FastAPI:
     app = FastAPI(title="RAG System API", version="0.1.0")
     app.state.rag_runner = rag_runner or build_env_rag_runner()
     app.state.api_settings = api_settings or ApiSettings.from_env()
+    add_observability_middleware(
+        app,
+        observability_settings or ObservabilitySettings.from_env(),
+    )
 
     @app.get("/health")
     def health() -> dict[str, str]:

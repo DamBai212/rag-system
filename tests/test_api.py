@@ -1,7 +1,8 @@
 from fastapi.testclient import TestClient
 
 from app.api import create_app
-from app.config import ApiSettings
+from app.config import ApiSettings, ObservabilitySettings
+from app.observability import REQUEST_ID_HEADER
 from app.pipeline import NoRetrievedChunksError
 
 
@@ -10,6 +11,7 @@ def test_health_endpoint_returns_ok():
         create_app(
             rag_runner=lambda **kwargs: {},
             api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
         )
     )
 
@@ -17,6 +19,7 @@ def test_health_endpoint_returns_ok():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+    assert response.headers[REQUEST_ID_HEADER]
 
 
 def test_ask_endpoint_returns_pipeline_response():
@@ -44,6 +47,7 @@ def test_ask_endpoint_returns_pipeline_response():
         create_app(
             rag_runner=fake_rag_runner,
             api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
         )
     )
 
@@ -75,6 +79,7 @@ def test_ask_endpoint_returns_pipeline_response():
         "index": None,
         "model": None,
     }
+    assert response.headers[REQUEST_ID_HEADER]
 
 
 def test_ask_endpoint_returns_404_when_no_chunks_found():
@@ -85,6 +90,7 @@ def test_ask_endpoint_returns_404_when_no_chunks_found():
         create_app(
             rag_runner=fake_rag_runner,
             api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
         )
     )
 
@@ -95,6 +101,7 @@ def test_ask_endpoint_returns_404_when_no_chunks_found():
     )
 
     assert response.status_code == 404
+    assert response.headers[REQUEST_ID_HEADER]
 
 
 def test_ask_endpoint_requires_authorization_when_token_is_configured():
@@ -109,6 +116,7 @@ def test_ask_endpoint_requires_authorization_when_token_is_configured():
                 "retrieved_chunk_count": 0,
             },
             api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
         )
     )
 
@@ -116,6 +124,7 @@ def test_ask_endpoint_requires_authorization_when_token_is_configured():
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Missing Authorization header."}
+    assert response.headers[REQUEST_ID_HEADER]
 
 
 def test_ask_endpoint_rejects_invalid_authorization_token():
@@ -130,6 +139,7 @@ def test_ask_endpoint_rejects_invalid_authorization_token():
                 "retrieved_chunk_count": 0,
             },
             api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
         )
     )
 
@@ -141,3 +151,4 @@ def test_ask_endpoint_rejects_invalid_authorization_token():
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Invalid API token."}
+    assert response.headers[REQUEST_ID_HEADER]

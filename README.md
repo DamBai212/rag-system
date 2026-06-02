@@ -2,7 +2,7 @@
 
 This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, retrieves the most relevant context for a user query, generates a grounded answer with OpenAI, and now exposes that flow through a FastAPI endpoint.
 
-Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, and API layers. The next natural steps are deployment, richer authentication, and an end-user interface.
+Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, API, deployment-entrypoint, and basic observability layers. The next natural steps are hosted deployment, richer authentication, and an end-user interface.
 
 ## Problem Statement
 
@@ -25,6 +25,8 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - grounded answer generation with OpenAI
 - FastAPI application boundary for the full RAG flow
 - optional bearer-token protection for the `/ask` endpoint
+- container-ready runtime entrypoint for hosted deployment
+- request IDs and structured request logging for API observability
 - tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
 
 ## Architecture
@@ -97,6 +99,8 @@ Internal documents / SOPs / FAQs / runbooks
 - `app/generation.py`: formats retrieved context and calls OpenAI for grounded answers
 - `app/pipeline.py`: orchestrates retrieval plus generation for shared CLI/API usage
 - `app/api.py`: exposes the full RAG flow through FastAPI
+- `app/server.py`: starts the API using environment-driven host/port settings
+- `app/observability.py`: adds request IDs and structured API request logging
 - `scripts/check_elasticsearch.py`: verifies cluster connectivity
 - `scripts/index_chunks.py`: creates the index if needed and loads chunk data
 - `scripts/search_chunks.py`: searches indexed chunks from the terminal
@@ -140,6 +144,7 @@ Optional settings:
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 - `OPENAI_MAX_OUTPUT_TOKENS` defaults to `400`
 - `RAG_API_TOKEN` enables bearer-token auth for `POST /ask` when set
+- `LOG_LEVEL` defaults to `INFO`
 - `ELASTIC_INDEX` defaults to `rag-docs`
 - `ELASTIC_VERIFY_CERTS` defaults to `true`
 - `ELASTIC_REQUEST_TIMEOUT` defaults to `30`
@@ -211,6 +216,35 @@ curl -X POST http://127.0.0.1:8000/ask \
   -d '{"question":"How does RAG reduce hallucinations?","top_k":3}'
 ```
 
+Every API response also includes an `X-Request-ID` header. You can provide your
+own `X-Request-ID` value, or let the API generate one for tracing.
+
+## Deployment
+
+### Run with the packaged entrypoint
+
+This uses `HOST` and `PORT` environment variables and is a better fit for
+deployment than the local `--reload` command:
+
+```bash
+python -m app.server
+```
+
+### Build a container image
+
+```bash
+docker build -t rag-system-api .
+```
+
+### Run the container
+
+```bash
+docker run --rm -p 8000:8000 --env-file .env rag-system-api
+```
+
+Most hosting platforms inject `PORT` automatically, and the container entrypoint
+will use it without any code changes.
+
 ## Concrete Use Case Example
 
 Imagine an internal knowledge assistant for a support team.
@@ -256,7 +290,7 @@ For a company scaling Ops and Support, that is more than a technical improvement
 
 ## Current Status
 
-The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, and API foundation of a RAG system. The next logical steps are:
+The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, API, deployment-entrypoint, and basic observability foundation of a RAG system. The next logical steps are:
 
-- deployment of the full workflow behind an application boundary
+- hosted deployment of the full workflow behind an application boundary
 - richer authentication, observability, and UI polish for end users

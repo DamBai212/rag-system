@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+VALID_LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
+
 
 def _read_optional_env(name: str) -> str | None:
     value = os.getenv(name, "").strip()
@@ -28,6 +30,14 @@ def _parse_positive_int(name: str, value: str) -> int:
         raise ValueError(f"{name} must be greater than 0.")
 
     return parsed
+
+
+def _parse_log_level(value: str) -> str:
+    normalized = value.strip().upper()
+    if normalized not in VALID_LOG_LEVELS:
+        expected = ", ".join(sorted(VALID_LOG_LEVELS))
+        raise ValueError(f"LOG_LEVEL must be one of: {expected}.")
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -146,3 +156,13 @@ class ApiSettings:
 
     def auth_enabled(self) -> bool:
         return bool(self.api_token)
+
+
+@dataclass(frozen=True)
+class ObservabilitySettings:
+    log_level: str = "INFO"
+
+    @classmethod
+    def from_env(cls) -> "ObservabilitySettings":
+        log_level = _parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
+        return cls(log_level=log_level)
