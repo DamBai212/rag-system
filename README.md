@@ -2,7 +2,7 @@
 
 This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, retrieves the most relevant context for a user query, generates a grounded answer with OpenAI, and now exposes that flow through a FastAPI endpoint.
 
-Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, API, deployment-entrypoint, and basic observability layers. The next natural steps are hosted deployment, richer authentication, and an end-user interface.
+Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, API, deployment-entrypoint, basic observability, browser UI, and lightweight session auth layers. The next natural steps are hosted deployment and stronger production auth for real users.
 
 ## Problem Statement
 
@@ -27,6 +27,8 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - optional bearer-token protection for the `/ask` endpoint
 - container-ready runtime entrypoint for hosted deployment
 - request IDs and structured request logging for API observability
+- lightweight browser UI served directly from the FastAPI app
+- browser-friendly session auth built on the existing API token
 - tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
 
 ## Architecture
@@ -101,6 +103,8 @@ Internal documents / SOPs / FAQs / runbooks
 - `app/api.py`: exposes the full RAG flow through FastAPI
 - `app/server.py`: starts the API using environment-driven host/port settings
 - `app/observability.py`: adds request IDs and structured API request logging
+- `app/ui.py`: serves a lightweight browser interface for asking questions
+- `POST /session`, `DELETE /session`, and `GET /auth/status`: support browser login with an HTTP-only cookie
 - `scripts/check_elasticsearch.py`: verifies cluster connectivity
 - `scripts/index_chunks.py`: creates the index if needed and loads chunk data
 - `scripts/search_chunks.py`: searches indexed chunks from the terminal
@@ -219,6 +223,15 @@ curl -X POST http://127.0.0.1:8000/ask \
 Every API response also includes an `X-Request-ID` header. You can provide your
 own `X-Request-ID` value, or let the API generate one for tracing.
 
+The browser UI can also authenticate by sending the API token once to
+`POST /session`, which sets an HTTP-only cookie used for later `POST /ask`
+requests.
+
+### 11. Open the browser UI
+
+Start the API, then open `http://127.0.0.1:8000/` in a browser. The UI talks to
+the same `POST /ask` endpoint and supports optional bearer-token auth.
+
 ## Deployment
 
 ### Run with the packaged entrypoint
@@ -290,7 +303,7 @@ For a company scaling Ops and Support, that is more than a technical improvement
 
 ## Current Status
 
-The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, API, deployment-entrypoint, and basic observability foundation of a RAG system. The next logical steps are:
+The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, API, deployment-entrypoint, basic observability, browser UI, and lightweight session-auth foundation of a RAG system. The next logical steps are:
 
 - hosted deployment of the full workflow behind an application boundary
-- richer authentication, observability, and UI polish for end users
+- stronger production authentication and UI polish for end users

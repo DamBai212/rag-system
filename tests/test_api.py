@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.api import create_app
+from app.api import SESSION_COOKIE_NAME, create_app
 from app.config import ApiSettings, ObservabilitySettings
 from app.observability import REQUEST_ID_HEADER
 from app.pipeline import NoRetrievedChunksError
@@ -152,3 +152,36 @@ def test_ask_endpoint_rejects_invalid_authorization_token():
     assert response.status_code == 401
     assert response.json() == {"detail": "Invalid API token."}
     assert response.headers[REQUEST_ID_HEADER]
+
+
+def test_ask_endpoint_accepts_authenticated_session_cookie():
+    captured = {}
+
+    def fake_rag_runner(**kwargs):
+        captured.update(kwargs)
+        return {
+            "question": kwargs["question"],
+            "answer": "Grounded answer",
+            "sources": [],
+            "model": "gpt-4o-mini",
+            "response_id": None,
+            "retrieved_chunk_count": 0,
+        }
+
+    client = TestClient(
+        create_app(
+            rag_runner=fake_rag_runner,
+            api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+        )
+    )
+    client.cookies.set(SESSION_COOKIE_NAME, "secret-token")
+
+    response = client.post(
+        "/ask",
+        json={"question": "What is RAG?"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Grounded answer"
+    assert captured["question"] == "What is RAG?"

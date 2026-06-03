@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Cookie, FastAPI, Header, HTTPException, Response
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from app.config import (
@@ -15,6 +16,9 @@ from app.elasticsearch_client import create_elasticsearch_client
 from app.observability import add_observability_middleware
 from app.openai_client import create_openai_client
 from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
+from app.ui import render_chat_ui
+
+SESSION_COOKIE_NAME = "rag_session"
 
 
 class AskRequest(BaseModel):
@@ -38,6 +42,15 @@ class AskResponse(BaseModel):
     model: str
     response_id: str | None
     retrieved_chunk_count: int
+
+
+class SessionRequest(BaseModel):
+    token: str
+
+
+class SessionResponse(BaseModel):
+    auth_enabled: bool
+    authenticated: bool
 
 
 def build_env_rag_runner() -> Callable[..., dict[str, object]]:
@@ -68,9 +81,13 @@ def build_env_rag_runner() -> Callable[..., dict[str, object]]:
 
 def require_api_token(
     authorization: str | None,
+    session_token: str | None,
     api_settings: ApiSettings,
 ) -> None:
     if not api_settings.auth_enabled():
+        return
+
+    if session_token == api_settings.api_token:
         return
 
     if not authorization:
@@ -79,6 +96,21 @@ def require_api_token(
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or token != api_settings.api_token:
         raise HTTPException(status_code=401, detail="Invalid API token.")
+
+
+def create_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=60 * 60 * 12,
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(key=SESSION_COOKIE_NAME)
 
 
 def create_app(
@@ -98,12 +130,54 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/", response_class=HTMLResponse)
+    def home() -> str:
+        return render_chat_ui()
+
+    @app.get("/auth/status", response_model=SessionResponse)
+    def auth_status(
+        session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    ) -> SessionResponse:
+        auth_enabled = app.state.api_settings.auth_enabled()
+        authenticated = auth_enabled and session_token == app.state.api_settings.api_token
+        return SessionResponse(
+            auth_enabled=auth_enabled,
+            authenticated=authenticated,
+        )
+
+    @app.post("/session", response_model=SessionResponse)
+    def create_session(
+        request: SessionRequest,
+        response: Response,
+    ) -> SessionResponse:
+        if not app.state.api_settings.auth_enabled():
+            return SessionResponse(auth_enabled=False, authenticated=False)
+
+        if request.token != app.state.api_settings.api_token:
+            raise HTTPException(status_code=401, detail="Invalid API token.")
+
+        create_session_cookie(response, request.token)
+        return SessionResponse(auth_enabled=True, authenticated=True)
+
+    @app.delete("/session", response_model=SessionResponse)
+    def delete_session(response: Response) -> SessionResponse:
+        clear_session_cookie(response)
+        return SessionResponse(
+            auth_enabled=app.state.api_settings.auth_enabled(),
+            authenticated=False,
+        )
+
     @app.post("/ask", response_model=AskResponse)
     def ask(
         request: AskRequest,
         authorization: str | None = Header(default=None),
+        session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     ) -> AskResponse:
-        require_api_token(authorization, app.state.api_settings)
+        require_api_token(
+            authorization,
+            session_token,
+            app.state.api_settings,
+        )
 
         try:
             result = app.state.rag_runner(
