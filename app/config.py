@@ -149,13 +149,26 @@ class OpenAISettings:
 @dataclass(frozen=True)
 class ApiSettings:
     api_token: str | None = None
+    session_secret: str | None = None
+    session_ttl_seconds: int = 43200
+    session_cookie_secure: bool = False
 
     @classmethod
     def from_env(cls) -> "ApiSettings":
-        return cls(api_token=_read_optional_env("RAG_API_TOKEN"))
+        ttl_raw = os.getenv("SESSION_TTL_SECONDS", "43200").strip()
+        secure_raw = os.getenv("SESSION_COOKIE_SECURE", "false")
+        return cls(
+            api_token=_read_optional_env("RAG_API_TOKEN"),
+            session_secret=_read_optional_env("SESSION_SECRET"),
+            session_ttl_seconds=_parse_positive_int("SESSION_TTL_SECONDS", ttl_raw),
+            session_cookie_secure=_parse_bool(secure_raw),
+        )
 
     def auth_enabled(self) -> bool:
         return bool(self.api_token)
+
+    def session_signing_secret(self) -> str | None:
+        return self.session_secret or self.api_token
 
 
 @dataclass(frozen=True)

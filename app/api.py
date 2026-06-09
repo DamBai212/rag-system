@@ -16,6 +16,7 @@ from app.elasticsearch_client import create_elasticsearch_client
 from app.observability import add_observability_middleware
 from app.openai_client import create_openai_client
 from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
+from app.session_auth import create_signed_session_value, verify_signed_session_value
 from app.ui import render_chat_ui
 
 SESSION_COOKIE_NAME = "rag_session"
@@ -87,7 +88,7 @@ def require_api_token(
     if not api_settings.auth_enabled():
         return
 
-    if session_token == api_settings.api_token:
+    if verify_signed_session_value(session_token, api_settings):
         return
 
     if not authorization:
@@ -98,14 +99,14 @@ def require_api_token(
         raise HTTPException(status_code=401, detail="Invalid API token.")
 
 
-def create_session_cookie(response: Response, token: str) -> None:
+def create_session_cookie(response: Response, api_settings: ApiSettings) -> None:
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
-        value=token,
+        value=create_signed_session_value(api_settings),
         httponly=True,
         samesite="lax",
-        secure=False,
-        max_age=60 * 60 * 12,
+        secure=api_settings.session_cookie_secure,
+        max_age=api_settings.session_ttl_seconds,
     )
 
 
@@ -139,7 +140,10 @@ def create_app(
         session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     ) -> SessionResponse:
         auth_enabled = app.state.api_settings.auth_enabled()
-        authenticated = auth_enabled and session_token == app.state.api_settings.api_token
+        authenticated = verify_signed_session_value(
+            session_token,
+            app.state.api_settings,
+        )
         return SessionResponse(
             auth_enabled=auth_enabled,
             authenticated=authenticated,
@@ -156,7 +160,7 @@ def create_app(
         if request.token != app.state.api_settings.api_token:
             raise HTTPException(status_code=401, detail="Invalid API token.")
 
-        create_session_cookie(response, request.token)
+        create_session_cookie(response, app.state.api_settings)
         return SessionResponse(auth_enabled=True, authenticated=True)
 
     @app.delete("/session", response_model=SessionResponse)

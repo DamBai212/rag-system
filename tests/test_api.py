@@ -171,11 +171,16 @@ def test_ask_endpoint_accepts_authenticated_session_cookie():
     client = TestClient(
         create_app(
             rag_runner=fake_rag_runner,
-            api_settings=ApiSettings(api_token="secret-token"),
+            api_settings=ApiSettings(
+                api_token="secret-token",
+                session_secret="cookie-secret",
+                session_ttl_seconds=3600,
+                session_cookie_secure=False,
+            ),
             observability_settings=ObservabilitySettings(log_level="INFO"),
         )
     )
-    client.cookies.set(SESSION_COOKIE_NAME, "secret-token")
+    client.post("/session", json={"token": "secret-token"})
 
     response = client.post(
         "/ask",

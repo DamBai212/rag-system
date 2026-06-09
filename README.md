@@ -148,6 +148,9 @@ Optional settings:
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 - `OPENAI_MAX_OUTPUT_TOKENS` defaults to `400`
 - `RAG_API_TOKEN` enables bearer-token auth for `POST /ask` when set
+- `SESSION_SECRET` signs browser session cookies; defaults to the API token if omitted
+- `SESSION_TTL_SECONDS` defaults to `43200` (12 hours)
+- `SESSION_COOKIE_SECURE` defaults to `false`; set it to `true` behind HTTPS
 - `LOG_LEVEL` defaults to `INFO`
 - `ELASTIC_INDEX` defaults to `rag-docs`
 - `ELASTIC_VERIFY_CERTS` defaults to `true`
@@ -224,8 +227,8 @@ Every API response also includes an `X-Request-ID` header. You can provide your
 own `X-Request-ID` value, or let the API generate one for tracing.
 
 The browser UI can also authenticate by sending the API token once to
-`POST /session`, which sets an HTTP-only cookie used for later `POST /ask`
-requests.
+`POST /session`, which sets a signed, expiring HTTP-only cookie used for later
+`POST /ask` requests.
 
 ### 11. Open the browser UI
 
