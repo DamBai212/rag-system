@@ -179,3 +179,28 @@ class ObservabilitySettings:
     def from_env(cls) -> "ObservabilitySettings":
         log_level = _parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
         return cls(log_level=log_level)
+
+
+@dataclass(frozen=True)
+class RateLimitSettings:
+    enabled: bool = True
+    max_requests: int = 20
+    window_seconds: int = 60
+
+    @classmethod
+    def from_env(cls) -> "RateLimitSettings":
+        enabled_raw = os.getenv("RATE_LIMIT_ENABLED", "true")
+        max_requests_raw = os.getenv("RATE_LIMIT_MAX_REQUESTS", "20").strip()
+        window_seconds_raw = os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60").strip()
+
+        return cls(
+            enabled=_parse_bool(enabled_raw),
+            max_requests=_parse_positive_int(
+                "RATE_LIMIT_MAX_REQUESTS",
+                max_requests_raw,
+            ),
+            window_seconds=_parse_positive_int(
+                "RATE_LIMIT_WINDOW_SECONDS",
+                window_seconds_raw,
+            ),
+        )

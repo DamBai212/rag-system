@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from fastapi import Cookie, FastAPI, Header, HTTPException, Response
+from fastapi import Cookie, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -11,11 +11,13 @@ from app.config import (
     ElasticsearchSettings,
     ObservabilitySettings,
     OpenAISettings,
+    RateLimitSettings,
 )
 from app.elasticsearch_client import create_elasticsearch_client
 from app.observability import add_observability_middleware
 from app.openai_client import create_openai_client
 from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
+from app.rate_limit import InMemoryRateLimiter, build_rate_limit_key
 from app.session_auth import create_signed_session_value, verify_signed_session_value
 from app.ui import render_chat_ui
 
@@ -118,10 +120,14 @@ def create_app(
     rag_runner: Callable[..., dict[str, object]] | None = None,
     api_settings: ApiSettings | None = None,
     observability_settings: ObservabilitySettings | None = None,
+    rate_limiter: InMemoryRateLimiter | None = None,
 ) -> FastAPI:
     app = FastAPI(title="RAG System API", version="0.1.0")
     app.state.rag_runner = rag_runner or build_env_rag_runner()
     app.state.api_settings = api_settings or ApiSettings.from_env()
+    app.state.rate_limiter = rate_limiter or InMemoryRateLimiter(
+        RateLimitSettings.from_env()
+    )
     add_observability_middleware(
         app,
         observability_settings or ObservabilitySettings.from_env(),
@@ -173,6 +179,7 @@ def create_app(
 
     @app.post("/ask", response_model=AskResponse)
     def ask(
+        fastapi_request: Request,
         request: AskRequest,
         authorization: str | None = Header(default=None),
         session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
@@ -181,6 +188,13 @@ def create_app(
             authorization,
             session_token,
             app.state.api_settings,
+        )
+        app.state.rate_limiter.check(
+            build_rate_limit_key(
+                client_host=fastapi_request.client.host if fastapi_request.client else None,
+                request_path=fastapi_request.url.path,
+                session_token=session_token,
+            )
         )
 
         try:

@@ -152,6 +152,9 @@ Optional settings:
 - `SESSION_TTL_SECONDS` defaults to `43200` (12 hours)
 - `SESSION_COOKIE_SECURE` defaults to `false`; set it to `true` behind HTTPS
 - `LOG_LEVEL` defaults to `INFO`
+- `RATE_LIMIT_ENABLED` defaults to `true`
+- `RATE_LIMIT_MAX_REQUESTS` defaults to `20`
+- `RATE_LIMIT_WINDOW_SECONDS` defaults to `60`
 - `ELASTIC_INDEX` defaults to `rag-docs`
 - `ELASTIC_VERIFY_CERTS` defaults to `true`
 - `ELASTIC_REQUEST_TIMEOUT` defaults to `30`
@@ -229,6 +232,10 @@ own `X-Request-ID` value, or let the API generate one for tracing.
 The browser UI can also authenticate by sending the API token once to
 `POST /session`, which sets a signed, expiring HTTP-only cookie used for later
 `POST /ask` requests.
+
+The `POST /ask` endpoint is also protected by a simple in-process rate limit by
+default. Tune the threshold with `RATE_LIMIT_MAX_REQUESTS` and
+`RATE_LIMIT_WINDOW_SECONDS`, or disable it with `RATE_LIMIT_ENABLED=false`.
 
 ### 11. Open the browser UI
 

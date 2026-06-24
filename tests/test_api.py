@@ -1,9 +1,10 @@
 from fastapi.testclient import TestClient
 
 from app.api import SESSION_COOKIE_NAME, create_app
-from app.config import ApiSettings, ObservabilitySettings
+from app.config import ApiSettings, ObservabilitySettings, RateLimitSettings
 from app.observability import REQUEST_ID_HEADER
 from app.pipeline import NoRetrievedChunksError
+from app.rate_limit import InMemoryRateLimiter
 
 
 def test_health_endpoint_returns_ok():
@@ -190,3 +191,31 @@ def test_ask_endpoint_accepts_authenticated_session_cookie():
     assert response.status_code == 200
     assert response.json()["answer"] == "Grounded answer"
     assert captured["question"] == "What is RAG?"
+
+
+def test_ask_endpoint_returns_429_when_rate_limit_is_exceeded():
+    limiter = InMemoryRateLimiter(
+        RateLimitSettings(enabled=True, max_requests=1, window_seconds=60)
+    )
+
+    client = TestClient(
+        create_app(
+            rag_runner=lambda **kwargs: {
+                "question": kwargs["question"],
+                "answer": "Grounded answer",
+                "sources": [],
+                "model": "gpt-4o-mini",
+                "response_id": None,
+                "retrieved_chunk_count": 0,
+            },
+            api_settings=ApiSettings(api_token=None),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+            rate_limiter=limiter,
+        )
+    )
+
+    first = client.post("/ask", json={"question": "What is RAG?"})
+    second = client.post("/ask", json={"question": "What is RAG?"})
+
+    assert first.status_code == 200
+    assert second.status_code == 429
