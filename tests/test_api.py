@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.api import SESSION_COOKIE_NAME, create_app
 from app.config import ApiSettings, ObservabilitySettings, RateLimitSettings
 from app.observability import REQUEST_ID_HEADER
+from app.password_auth import hash_password
 from app.pipeline import NoRetrievedChunksError
 from app.rate_limit import InMemoryRateLimiter
 
@@ -191,6 +192,87 @@ def test_ask_endpoint_accepts_authenticated_session_cookie():
     assert response.status_code == 200
     assert response.json()["answer"] == "Grounded answer"
     assert captured["question"] == "What is RAG?"
+
+
+def test_ask_endpoint_supports_dedicated_session_credentials():
+    captured = {}
+
+    def fake_rag_runner(**kwargs):
+        captured.update(kwargs)
+        return {
+            "question": kwargs["question"],
+            "answer": "Grounded answer",
+            "sources": [],
+            "model": "gpt-4o-mini",
+            "response_id": None,
+            "retrieved_chunk_count": 0,
+        }
+
+    client = TestClient(
+        create_app(
+            rag_runner=fake_rag_runner,
+            api_settings=ApiSettings(
+                api_token=None,
+                session_secret="cookie-secret",
+                session_username="ops",
+                session_password_hash=hash_password("strong-password"),
+                session_ttl_seconds=3600,
+                session_cookie_secure=False,
+            ),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+        )
+    )
+
+    unauthorized = client.post("/ask", json={"question": "What is RAG?"})
+    assert unauthorized.status_code == 401
+    assert unauthorized.json() == {"detail": "Authentication required."}
+
+    login = client.post(
+        "/session",
+        json={"username": "ops", "password": "strong-password"},
+    )
+    assert login.status_code == 200
+
+    response = client.post("/ask", json={"question": "What is RAG?"})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Grounded answer"
+    assert captured["question"] == "What is RAG?"
+
+
+def test_ask_endpoint_rejects_bearer_token_when_only_session_auth_is_enabled():
+    client = TestClient(
+        create_app(
+            rag_runner=lambda **kwargs: {
+                "question": kwargs["question"],
+                "answer": "Grounded answer",
+                "sources": [],
+                "model": "gpt-4o-mini",
+                "response_id": None,
+                "retrieved_chunk_count": 0,
+            },
+            api_settings=ApiSettings(
+                api_token=None,
+                session_secret="cookie-secret",
+                session_username="ops",
+                session_password_hash=hash_password("strong-password"),
+                session_ttl_seconds=3600,
+                session_cookie_secure=False,
+            ),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+        )
+    )
+
+    response = client.post(
+        "/ask",
+        json={"question": "What is RAG?"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "Bearer token auth is not enabled for this deployment."
+    }
 
 
 def test_ask_endpoint_returns_429_when_rate_limit_is_exceeded():

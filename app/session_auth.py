@@ -5,6 +5,7 @@ import hmac
 import time
 
 from app.config import ApiSettings
+from app.password_auth import verify_password
 
 SESSION_VERSION = "v1"
 
@@ -34,7 +35,7 @@ def verify_signed_session_value(
     api_settings: ApiSettings,
     now: int | None = None,
 ) -> bool:
-    if not api_settings.auth_enabled() or not session_value:
+    if not api_settings.request_auth_enabled() or not session_value:
         return False
 
     try:
@@ -52,3 +53,15 @@ def verify_signed_session_value(
 
     expected_signature = _sign_session(expiry_timestamp, api_settings)
     return hmac.compare_digest(signature, expected_signature)
+
+
+def verify_session_credentials(
+    username: str | None,
+    password: str | None,
+    api_settings: ApiSettings,
+) -> bool:
+    if not api_settings.session_auth_enabled():
+        return False
+    if username != api_settings.session_username:
+        return False
+    return verify_password(password or "", api_settings.session_password_hash)

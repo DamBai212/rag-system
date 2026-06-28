@@ -18,7 +18,11 @@ from app.observability import add_observability_middleware
 from app.openai_client import create_openai_client
 from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
 from app.rate_limit import InMemoryRateLimiter, build_rate_limit_key
-from app.session_auth import create_signed_session_value, verify_signed_session_value
+from app.session_auth import (
+    create_signed_session_value,
+    verify_session_credentials,
+    verify_signed_session_value,
+)
 from app.ui import render_chat_ui
 
 SESSION_COOKIE_NAME = "rag_session"
@@ -48,12 +52,16 @@ class AskResponse(BaseModel):
 
 
 class SessionRequest(BaseModel):
-    token: str
+    token: str | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 class SessionResponse(BaseModel):
     auth_enabled: bool
     authenticated: bool
+    session_login_enabled: bool
+    token_login_enabled: bool
 
 
 def build_env_rag_runner() -> Callable[..., dict[str, object]]:
@@ -82,23 +90,47 @@ def build_env_rag_runner() -> Callable[..., dict[str, object]]:
     return rag_runner
 
 
-def require_api_token(
+def build_session_response(
+    api_settings: ApiSettings,
+    *,
+    authenticated: bool,
+) -> SessionResponse:
+    return SessionResponse(
+        auth_enabled=api_settings.request_auth_enabled(),
+        authenticated=authenticated,
+        session_login_enabled=api_settings.session_auth_enabled(),
+        token_login_enabled=api_settings.api_token_auth_enabled(),
+    )
+
+
+def require_request_auth(
     authorization: str | None,
     session_token: str | None,
     api_settings: ApiSettings,
 ) -> None:
-    if not api_settings.auth_enabled():
+    if not api_settings.request_auth_enabled():
         return
 
     if verify_signed_session_value(session_token, api_settings):
         return
 
+    if authorization:
+        if not api_settings.api_token_auth_enabled():
+            raise HTTPException(
+                status_code=401,
+                detail="Bearer token auth is not enabled for this deployment.",
+            )
+
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or token != api_settings.api_token:
+            raise HTTPException(status_code=401, detail="Invalid API token.")
+        return
+
+    if api_settings.session_auth_enabled():
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header.")
-
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or token != api_settings.api_token:
-        raise HTTPException(status_code=401, detail="Invalid API token.")
 
 
 def create_session_cookie(response: Response, api_settings: ApiSettings) -> None:
@@ -145,14 +177,12 @@ def create_app(
     def auth_status(
         session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     ) -> SessionResponse:
-        auth_enabled = app.state.api_settings.auth_enabled()
-        authenticated = verify_signed_session_value(
-            session_token,
+        return build_session_response(
             app.state.api_settings,
-        )
-        return SessionResponse(
-            auth_enabled=auth_enabled,
-            authenticated=authenticated,
+            authenticated=verify_signed_session_value(
+                session_token,
+                app.state.api_settings,
+            ),
         )
 
     @app.post("/session", response_model=SessionResponse)
@@ -160,20 +190,33 @@ def create_app(
         request: SessionRequest,
         response: Response,
     ) -> SessionResponse:
-        if not app.state.api_settings.auth_enabled():
-            return SessionResponse(auth_enabled=False, authenticated=False)
+        if not app.state.api_settings.request_auth_enabled():
+            return build_session_response(
+                app.state.api_settings,
+                authenticated=False,
+            )
 
-        if request.token != app.state.api_settings.api_token:
+        if app.state.api_settings.session_auth_enabled():
+            if not verify_session_credentials(
+                request.username,
+                request.password,
+                app.state.api_settings,
+            ):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid username or password.",
+                )
+        elif request.token != app.state.api_settings.api_token:
             raise HTTPException(status_code=401, detail="Invalid API token.")
 
         create_session_cookie(response, app.state.api_settings)
-        return SessionResponse(auth_enabled=True, authenticated=True)
+        return build_session_response(app.state.api_settings, authenticated=True)
 
     @app.delete("/session", response_model=SessionResponse)
     def delete_session(response: Response) -> SessionResponse:
         clear_session_cookie(response)
-        return SessionResponse(
-            auth_enabled=app.state.api_settings.auth_enabled(),
+        return build_session_response(
+            app.state.api_settings,
             authenticated=False,
         )
 
@@ -184,7 +227,7 @@ def create_app(
         authorization: str | None = Header(default=None),
         session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     ) -> AskResponse:
-        require_api_token(
+        require_request_auth(
             authorization,
             session_token,
             app.state.api_settings,

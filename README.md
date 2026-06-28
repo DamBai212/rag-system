@@ -2,7 +2,7 @@
 
 This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, retrieves the most relevant context for a user query, generates a grounded answer with OpenAI, and now exposes that flow through a FastAPI endpoint.
 
-Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, API, deployment-entrypoint, basic observability, browser UI, and lightweight session auth layers. The next natural steps are hosted deployment and stronger production auth for real users.
+Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, API, deployment-entrypoint, basic observability, browser UI, and production-oriented session auth layers. The next natural step is hosted deployment and deeper UX polish for real users.
 
 ## Problem Statement
 
@@ -28,7 +28,7 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - container-ready runtime entrypoint for hosted deployment
 - request IDs and structured request logging for API observability
 - lightweight browser UI served directly from the FastAPI app
-- browser-friendly session auth built on the existing API token
+- browser-friendly session auth with either a shared API token or dedicated username/password credentials
 - tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
 
 ## Architecture
@@ -148,7 +148,8 @@ Optional settings:
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`
 - `OPENAI_MAX_OUTPUT_TOKENS` defaults to `400`
 - `RAG_API_TOKEN` enables bearer-token auth for `POST /ask` when set
-- `SESSION_SECRET` signs browser session cookies; defaults to the API token if omitted
+- `SESSION_USERNAME` and `SESSION_PASSWORD_HASH` enable dedicated browser sign-in
+- `SESSION_SECRET` signs browser session cookies; defaults to the session password hash or API token if omitted
 - `SESSION_TTL_SECONDS` defaults to `43200` (12 hours)
 - `SESSION_COOKIE_SECURE` defaults to `false`; set it to `true` behind HTTPS
 - `LOG_LEVEL` defaults to `INFO`
@@ -229,9 +230,15 @@ curl -X POST http://127.0.0.1:8000/ask \
 Every API response also includes an `X-Request-ID` header. You can provide your
 own `X-Request-ID` value, or let the API generate one for tracing.
 
-The browser UI can also authenticate by sending the API token once to
-`POST /session`, which sets a signed, expiring HTTP-only cookie used for later
-`POST /ask` requests.
+The browser UI can also authenticate by sending either the shared API token or
+dedicated session credentials to `POST /session`, which sets a signed,
+expiring HTTP-only cookie used for later `POST /ask` requests.
+
+To generate a `SESSION_PASSWORD_HASH` value:
+
+```bash
+python scripts/hash_password.py
+```
 
 The `POST /ask` endpoint is also protected by a simple in-process rate limit by
 default. Tune the threshold with `RATE_LIMIT_MAX_REQUESTS` and
@@ -240,7 +247,8 @@ default. Tune the threshold with `RATE_LIMIT_MAX_REQUESTS` and
 ### 11. Open the browser UI
 
 Start the API, then open `http://127.0.0.1:8000/` in a browser. The UI talks to
-the same `POST /ask` endpoint and supports optional bearer-token auth.
+the same `POST /ask` endpoint and supports optional browser sign-in with either
+a shared token or dedicated session credentials.
 
 ## Deployment
 
@@ -313,7 +321,7 @@ For a company scaling Ops and Support, that is more than a technical improvement
 
 ## Current Status
 
-The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, API, deployment-entrypoint, basic observability, browser UI, and lightweight session-auth foundation of a RAG system. The next logical steps are:
+The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, API, deployment-entrypoint, basic observability, browser UI, and production-oriented session auth foundation of a RAG system. The next logical steps are:
 
 - hosted deployment of the full workflow behind an application boundary
-- stronger production authentication and UI polish for end users
+- richer end-user polish around the browser experience

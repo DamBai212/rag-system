@@ -146,10 +146,14 @@ def render_chat_ui() -> str:
 
       .session-bar {
         display: grid;
-        grid-template-columns: 1.1fr 1fr auto auto;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1fr) auto auto;
         gap: 12px;
         align-items: end;
         padding: 18px 24px 0;
+      }
+
+      .session-field[hidden] {
+        display: none;
       }
 
       .composer {
@@ -332,8 +336,8 @@ def render_chat_ui() -> str:
           <article class="mini-card">
             <strong>Auth</strong>
             <p>
-              If API token auth is enabled, paste the bearer token below before
-              sending your request.
+              If auth is enabled, sign in below with the deployment's configured
+              login method before sending your request.
             </p>
           </article>
         </div>
@@ -349,9 +353,17 @@ def render_chat_ui() -> str:
         </div>
 
         <div class="session-bar">
-          <div>
+          <div class="session-field" id="username-field" hidden>
+            <label for="username">Username</label>
+            <input id="username" type="text" placeholder="Enter your session username" />
+          </div>
+          <div class="session-field" id="password-field" hidden>
+            <label for="password">Password</label>
+            <input id="password" type="password" placeholder="Enter your session password" />
+          </div>
+          <div class="session-field" id="token-field">
             <label for="token">API Token</label>
-            <input id="token" type="password" placeholder="Login once if session auth is enabled" />
+            <input id="token" type="password" placeholder="Login once if token-based session auth is enabled" />
           </div>
           <div class="session-state" id="session-state">Auth status: checking…</div>
           <button id="login" type="button">Sign In</button>
@@ -374,7 +386,7 @@ def render_chat_ui() -> str:
                 <option value="8">8 chunks</option>
               </select>
             </div>
-            <div class="hint">
+            <div class="hint" id="auth-hint">
               Use the sign-in controls above if the API is protected. Once the
               session cookie is set, the browser UI can call <code>/ask</code>
               directly.
@@ -410,39 +422,88 @@ def render_chat_ui() -> str:
     <script>
       const questionEl = document.getElementById("question");
       const tokenEl = document.getElementById("token");
+      const usernameEl = document.getElementById("username");
+      const passwordEl = document.getElementById("password");
       const topKEl = document.getElementById("top-k");
       const submitEl = document.getElementById("submit");
       const loginEl = document.getElementById("login");
       const logoutEl = document.getElementById("logout");
       const sessionStateEl = document.getElementById("session-state");
+      const usernameFieldEl = document.getElementById("username-field");
+      const passwordFieldEl = document.getElementById("password-field");
+      const tokenFieldEl = document.getElementById("token-field");
+      const authHintEl = document.getElementById("auth-hint");
       const answerEl = document.getElementById("answer");
       const sourcesEl = document.getElementById("sources");
       const errorEl = document.getElementById("error");
       const requestIdEl = document.getElementById("request-id");
+      let authState = {
+        auth_enabled: false,
+        authenticated: false,
+        session_login_enabled: false,
+        token_login_enabled: false
+      };
+
+      function applyAuthState(payload) {
+        authState = payload;
+        const useSessionCredentials = payload.session_login_enabled;
+        const authEnabled = payload.auth_enabled;
+
+        usernameFieldEl.hidden = !authEnabled || !useSessionCredentials;
+        passwordFieldEl.hidden = !authEnabled || !useSessionCredentials;
+        tokenFieldEl.hidden = !authEnabled || useSessionCredentials;
+        loginEl.hidden = !authEnabled;
+        logoutEl.hidden = !authEnabled;
+
+        if (!authEnabled) {
+          sessionStateEl.textContent = "Auth status: token not required";
+          authHintEl.innerHTML = "Auth is disabled for this deployment. The browser can call <code>/ask</code> directly.";
+          return;
+        }
+
+        if (useSessionCredentials) {
+          authHintEl.innerHTML = "This deployment expects a dedicated username and password before the browser can call <code>/ask</code> directly.";
+        } else {
+          authHintEl.innerHTML = "This deployment uses a shared API token for browser sign-in. Once the session cookie is set, the browser UI can call <code>/ask</code> directly.";
+        }
+
+        sessionStateEl.textContent = payload.authenticated
+          ? "Auth status: signed in"
+          : "Auth status: sign in required";
+      }
 
       async function refreshAuthStatus() {
         const response = await fetch("/auth/status");
         const payload = await response.json();
         const requestId = response.headers.get("X-Request-ID") || "missing";
         requestIdEl.textContent = `Request ID: ${requestId}`;
-
-        if (!payload.auth_enabled) {
-          sessionStateEl.textContent = "Auth status: token not required";
-          return payload;
-        }
-
-        sessionStateEl.textContent = payload.authenticated
-          ? "Auth status: signed in"
-          : "Auth status: sign in required";
+        applyAuthState(payload);
         return payload;
       }
 
       async function login() {
-        const token = tokenEl.value.trim();
-        if (!token) {
-          errorEl.textContent = "Enter the API token before signing in.";
-          errorEl.hidden = false;
-          return;
+        let body;
+
+        if (authState.session_login_enabled) {
+          const username = usernameEl.value.trim();
+          const password = passwordEl.value;
+
+          if (!username || !password) {
+            errorEl.textContent = "Enter your username and password before signing in.";
+            errorEl.hidden = false;
+            return;
+          }
+
+          body = { username, password };
+        } else {
+          const token = tokenEl.value.trim();
+          if (!token) {
+            errorEl.textContent = "Enter the API token before signing in.";
+            errorEl.hidden = false;
+            return;
+          }
+
+          body = { token };
         }
 
         errorEl.hidden = true;
@@ -453,7 +514,7 @@ def render_chat_ui() -> str:
             headers: {
               "Content-Type": "application/json"
             },
-            body: JSON.stringify({ token })
+            body: JSON.stringify(body)
           });
 
           const payload = await response.json();
@@ -465,6 +526,8 @@ def render_chat_ui() -> str:
           }
 
           tokenEl.value = "";
+          usernameEl.value = "";
+          passwordEl.value = "";
           await refreshAuthStatus();
         } catch (error) {
           errorEl.textContent = error.message;

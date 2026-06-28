@@ -150,6 +150,8 @@ class OpenAISettings:
 class ApiSettings:
     api_token: str | None = None
     session_secret: str | None = None
+    session_username: str | None = None
+    session_password_hash: str | None = None
     session_ttl_seconds: int = 43200
     session_cookie_secure: bool = False
 
@@ -157,18 +159,37 @@ class ApiSettings:
     def from_env(cls) -> "ApiSettings":
         ttl_raw = os.getenv("SESSION_TTL_SECONDS", "43200").strip()
         secure_raw = os.getenv("SESSION_COOKIE_SECURE", "false")
+        session_username = _read_optional_env("SESSION_USERNAME")
+        session_password_hash = _read_optional_env("SESSION_PASSWORD_HASH")
+
+        if bool(session_username) != bool(session_password_hash):
+            raise ValueError(
+                "Set both SESSION_USERNAME and SESSION_PASSWORD_HASH together."
+            )
+
         return cls(
             api_token=_read_optional_env("RAG_API_TOKEN"),
             session_secret=_read_optional_env("SESSION_SECRET"),
+            session_username=session_username,
+            session_password_hash=session_password_hash,
             session_ttl_seconds=_parse_positive_int("SESSION_TTL_SECONDS", ttl_raw),
             session_cookie_secure=_parse_bool(secure_raw),
         )
 
-    def auth_enabled(self) -> bool:
+    def api_token_auth_enabled(self) -> bool:
         return bool(self.api_token)
 
+    def session_auth_enabled(self) -> bool:
+        return bool(self.session_username and self.session_password_hash)
+
+    def request_auth_enabled(self) -> bool:
+        return self.api_token_auth_enabled() or self.session_auth_enabled()
+
+    def auth_enabled(self) -> bool:
+        return self.request_auth_enabled()
+
     def session_signing_secret(self) -> str | None:
-        return self.session_secret or self.api_token
+        return self.session_secret or self.session_password_hash or self.api_token
 
 
 @dataclass(frozen=True)
