@@ -116,9 +116,14 @@ def render_chat_ui() -> str:
       .toolbar {
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
         gap: 16px;
         padding: 6px 6px 0;
+      }
+
+      .toolbar-stack {
+        display: grid;
+        gap: 8px;
       }
 
       .status-badge {
@@ -132,6 +137,16 @@ def render_chat_ui() -> str:
         font-size: 0.92rem;
       }
 
+      .status-badge[data-state="degraded"] {
+        background: rgba(180, 83, 9, 0.12);
+        color: #92400e;
+      }
+
+      .status-badge[data-state="checking"] {
+        background: rgba(116, 98, 78, 0.12);
+        color: var(--muted);
+      }
+
       .status-dot {
         width: 9px;
         height: 9px;
@@ -139,9 +154,24 @@ def render_chat_ui() -> str:
         background: var(--accent);
       }
 
+      .status-badge[data-state="degraded"] .status-dot {
+        background: var(--warm);
+      }
+
+      .status-badge[data-state="checking"] .status-dot {
+        background: var(--line);
+      }
+
+      .readiness-note {
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.5;
+      }
+
       .request-id {
         color: var(--muted);
         font-size: 0.92rem;
+        padding-top: 10px;
       }
 
       .session-bar {
@@ -236,7 +266,8 @@ def render_chat_ui() -> str:
       }
 
       .result-card,
-      .sources-card {
+      .sources-card,
+      .history-card {
         padding: 22px;
         border-radius: 22px;
         border: 1px solid rgba(216, 198, 173, 0.75);
@@ -255,6 +286,30 @@ def render_chat_ui() -> str:
         margin: 0;
         white-space: pre-wrap;
         line-height: 1.7;
+      }
+
+      .answer-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+
+      .meta-pill {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(15, 118, 110, 0.08);
+        color: var(--accent-dark);
+        font-size: 0.9rem;
+      }
+
+      .meta-pill strong {
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
       }
 
       .sources {
@@ -292,6 +347,67 @@ def render_chat_ui() -> str:
         color: #9f1239;
       }
 
+      .history-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      .history-subtitle {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .history-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .history-item {
+        width: 100%;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(216, 198, 173, 0.82);
+        background: white;
+        box-shadow: none;
+        color: var(--text);
+        display: grid;
+        gap: 8px;
+        text-align: left;
+      }
+
+      .history-item:hover {
+        transform: translateY(-1px);
+      }
+
+      .history-item strong {
+        display: block;
+        font-size: 1rem;
+      }
+
+      .history-preview {
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .history-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .ghost-button {
+        background: transparent;
+        color: var(--accent-dark);
+        border: 1px solid rgba(15, 118, 110, 0.18);
+        box-shadow: none;
+      }
+
       @media (max-width: 940px) {
         .shell {
           grid-template-columns: 1fr;
@@ -305,6 +421,10 @@ def render_chat_ui() -> str:
         .field-grid,
         .session-bar {
           grid-template-columns: 1fr;
+        }
+
+        .history-header {
+          flex-direction: column;
         }
       }
     </style>
@@ -345,9 +465,14 @@ def render_chat_ui() -> str:
 
       <section class="panel workspace">
         <div class="toolbar">
-          <div class="status-badge">
-            <span class="status-dot"></span>
-            <span>Connected to the local RAG API</span>
+          <div class="toolbar-stack">
+            <div class="status-badge" id="readiness-badge" data-state="checking">
+              <span class="status-dot"></span>
+              <span id="readiness-label">Checking deployment readiness...</span>
+            </div>
+            <div class="readiness-note" id="readiness-note">
+              Verifying Elasticsearch, OpenAI, and auth configuration.
+            </div>
           </div>
           <div class="request-id" id="request-id">Request ID: waiting</div>
         </div>
@@ -404,6 +529,9 @@ def render_chat_ui() -> str:
         <section class="result-grid">
           <article class="result-card">
             <p class="section-title">Answer</p>
+            <div id="answer-meta" class="answer-meta">
+              <div class="empty">Model and retrieval details will appear here.</div>
+            </div>
             <p id="answer" class="empty">
               Your grounded answer will appear here once you submit a question.
             </p>
@@ -416,10 +544,28 @@ def render_chat_ui() -> str:
             </div>
           </article>
         </section>
+
+        <section class="history-card">
+          <div class="history-header">
+            <div>
+              <p class="section-title">Recent Questions</p>
+              <p class="history-subtitle">
+                Saved in this browser so you can reopen past answers and reuse
+                good prompts quickly.
+              </p>
+            </div>
+            <button id="clear-history" type="button" class="ghost-button">Clear History</button>
+          </div>
+          <div id="history" class="history-list">
+            <div class="empty">Questions you answer here will appear in this history.</div>
+          </div>
+        </section>
       </section>
     </main>
 
     <script>
+      const HISTORY_STORAGE_KEY = "rag-system-history";
+      const MAX_HISTORY_ITEMS = 8;
       const questionEl = document.getElementById("question");
       const tokenEl = document.getElementById("token");
       const usernameEl = document.getElementById("username");
@@ -432,17 +578,236 @@ def render_chat_ui() -> str:
       const usernameFieldEl = document.getElementById("username-field");
       const passwordFieldEl = document.getElementById("password-field");
       const tokenFieldEl = document.getElementById("token-field");
+      const readinessBadgeEl = document.getElementById("readiness-badge");
+      const readinessLabelEl = document.getElementById("readiness-label");
+      const readinessNoteEl = document.getElementById("readiness-note");
       const authHintEl = document.getElementById("auth-hint");
+      const answerMetaEl = document.getElementById("answer-meta");
       const answerEl = document.getElementById("answer");
       const sourcesEl = document.getElementById("sources");
+      const historyEl = document.getElementById("history");
+      const clearHistoryEl = document.getElementById("clear-history");
       const errorEl = document.getElementById("error");
       const requestIdEl = document.getElementById("request-id");
+      let historyItems = [];
       let authState = {
         auth_enabled: false,
         authenticated: false,
         session_login_enabled: false,
         token_login_enabled: false
       };
+
+      function createEmptyState(message) {
+        const emptyEl = document.createElement("div");
+        emptyEl.className = "empty";
+        emptyEl.textContent = message;
+        return emptyEl;
+      }
+
+      function createMetaPill(label, value) {
+        const pillEl = document.createElement("div");
+        pillEl.className = "meta-pill";
+
+        const labelEl = document.createElement("strong");
+        labelEl.textContent = label;
+
+        const valueEl = document.createElement("span");
+        valueEl.textContent = value;
+
+        pillEl.append(labelEl, valueEl);
+        return pillEl;
+      }
+
+      function renderAnswerMeta(payload) {
+        answerMetaEl.replaceChildren();
+
+        if (!payload) {
+          answerMetaEl.append(createEmptyState("Model and retrieval details will appear here."));
+          return;
+        }
+
+        answerMetaEl.append(
+          createMetaPill("Model", payload.model || "unknown"),
+          createMetaPill("Chunks", String(payload.retrieved_chunk_count ?? 0)),
+          createMetaPill("Sources", String((payload.sources || []).length)),
+          createMetaPill("Response ID", payload.response_id || "n/a")
+        );
+      }
+
+      function renderSources(sources) {
+        sourcesEl.replaceChildren();
+
+        if (!sources.length) {
+          sourcesEl.append(createEmptyState("No sources returned."));
+          return;
+        }
+
+        sources.forEach((source) => {
+          const articleEl = document.createElement("article");
+          articleEl.className = "source-pill";
+
+          const titleEl = document.createElement("strong");
+          titleEl.textContent = source.source || "unknown source";
+
+          const metaEl = document.createElement("span");
+          metaEl.textContent = `id=${source.id || "n/a"} | chunk=${source.chunk_index ?? "n/a"} | score=${source.score ?? "n/a"}`;
+
+          articleEl.append(titleEl, metaEl);
+          sourcesEl.append(articleEl);
+        });
+      }
+
+      function renderResult(payload, requestId) {
+        answerEl.textContent = payload.answer;
+        answerEl.className = "answer";
+        renderAnswerMeta(payload);
+        renderSources(payload.sources || []);
+
+        if (requestId) {
+          requestIdEl.textContent = `Request ID: ${requestId}`;
+        }
+      }
+
+      function loadHistory() {
+        try {
+          const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+          if (!raw) {
+            return [];
+          }
+
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+          return [];
+        }
+      }
+
+      function persistHistory() {
+        try {
+          window.localStorage.setItem(
+            HISTORY_STORAGE_KEY,
+            JSON.stringify(historyItems.slice(0, MAX_HISTORY_ITEMS))
+          );
+        } catch (error) {
+          // Ignore storage failures and keep the current page functional.
+        }
+      }
+
+      function formatSavedAt(savedAt) {
+        if (!savedAt) {
+          return "saved recently";
+        }
+
+        try {
+          return new Intl.DateTimeFormat(undefined, {
+            dateStyle: "medium",
+            timeStyle: "short"
+          }).format(new Date(savedAt));
+        } catch (error) {
+          return savedAt;
+        }
+      }
+
+      function renderHistory() {
+        historyEl.replaceChildren();
+        clearHistoryEl.disabled = historyItems.length === 0;
+
+        if (!historyItems.length) {
+          historyEl.append(
+            createEmptyState("Questions you answer here will appear in this history.")
+          );
+          return;
+        }
+
+        historyItems.forEach((item, index) => {
+          const buttonEl = document.createElement("button");
+          buttonEl.type = "button";
+          buttonEl.className = "history-item";
+          buttonEl.addEventListener("click", () => {
+            questionEl.value = item.question || "";
+            topKEl.value = String(item.top_k || 3);
+            renderResult(item, item.request_id || "history");
+          });
+
+          const titleEl = document.createElement("strong");
+          titleEl.textContent = item.question || "Untitled question";
+
+          const previewEl = document.createElement("div");
+          previewEl.className = "history-preview";
+          previewEl.textContent = item.answer || "No answer saved.";
+
+          const metaEl = document.createElement("div");
+          metaEl.className = "history-meta";
+          metaEl.textContent = `${formatSavedAt(item.saved_at)} | model ${item.model || "unknown"} | ${item.retrieved_chunk_count ?? 0} chunks | ${(item.sources || []).length} sources`;
+
+          buttonEl.append(titleEl, previewEl, metaEl);
+          historyEl.append(buttonEl);
+        });
+      }
+
+      function storeHistoryEntry(payload, requestId) {
+        const entry = {
+          question: payload.question,
+          answer: payload.answer,
+          sources: payload.sources || [],
+          model: payload.model || "unknown",
+          response_id: payload.response_id || null,
+          retrieved_chunk_count: payload.retrieved_chunk_count ?? 0,
+          top_k: Number(topKEl.value),
+          request_id: requestId || "missing",
+          saved_at: new Date().toISOString()
+        };
+
+        historyItems = [
+          entry,
+          ...historyItems.filter((item) => {
+            return !(
+              item.question === entry.question &&
+              item.answer === entry.answer &&
+              item.request_id === entry.request_id
+            );
+          })
+        ].slice(0, MAX_HISTORY_ITEMS);
+
+        persistHistory();
+        renderHistory();
+      }
+
+      function summarizeReadinessChecks(checks) {
+        const failingChecks = Object.entries(checks || {}).filter(([, check]) => {
+          return check.status !== "ok";
+        });
+
+        if (!failingChecks.length) {
+          return "Elasticsearch, OpenAI, and auth configuration are ready.";
+        }
+
+        return failingChecks
+          .map(([name, check]) => `${name}: ${check.detail}`)
+          .join(" | ");
+      }
+
+      async function refreshReadiness() {
+        readinessBadgeEl.dataset.state = "checking";
+        readinessLabelEl.textContent = "Checking deployment readiness...";
+        readinessNoteEl.textContent = "Verifying Elasticsearch, OpenAI, and auth configuration.";
+
+        const response = await fetch("/ready");
+        const payload = await response.json();
+        const requestId = response.headers.get("X-Request-ID") || "missing";
+        requestIdEl.textContent = `Request ID: ${requestId}`;
+
+        if (payload.status === "ready") {
+          readinessBadgeEl.dataset.state = "ready";
+          readinessLabelEl.textContent = "Deployment ready for questions";
+        } else {
+          readinessBadgeEl.dataset.state = "degraded";
+          readinessLabelEl.textContent = "Deployment needs setup";
+        }
+
+        readinessNoteEl.textContent = summarizeReadinessChecks(payload.checks);
+        return payload;
+      }
 
       function applyAuthState(payload) {
         authState = payload;
@@ -554,7 +919,8 @@ def render_chat_ui() -> str:
         submitEl.textContent = "Working...";
         answerEl.textContent = "Fetching answer...";
         answerEl.className = "answer";
-        sourcesEl.innerHTML = "<div class=\\"empty\\">Loading sources...</div>";
+        renderAnswerMeta(null);
+        sourcesEl.replaceChildren(createEmptyState("Loading sources..."));
 
         try {
           const response = await fetch("/ask", {
@@ -576,23 +942,13 @@ def render_chat_ui() -> str:
             throw new Error(payload.detail || "Request failed.");
           }
 
-          answerEl.textContent = payload.answer;
-          answerEl.className = "answer";
-
-          if (!payload.sources.length) {
-            sourcesEl.innerHTML = "<div class=\\"empty\\">No sources returned.</div>";
-          } else {
-            sourcesEl.innerHTML = payload.sources.map((source) => `
-              <article class="source-pill">
-                <strong>${source.source || "unknown source"}</strong>
-                <span>id=${source.id || "n/a"} | chunk=${source.chunk_index ?? "n/a"} | score=${source.score ?? "n/a"}</span>
-              </article>
-            `).join("");
-          }
+          renderResult(payload, requestId);
+          storeHistoryEntry(payload, requestId);
         } catch (error) {
           answerEl.textContent = "No answer available.";
           answerEl.className = "empty";
-          sourcesEl.innerHTML = "<div class=\\"empty\\">No sources available.</div>";
+          renderAnswerMeta(null);
+          sourcesEl.replaceChildren(createEmptyState("No sources available."));
           errorEl.textContent = error.message;
           errorEl.hidden = false;
         } finally {
@@ -601,6 +957,11 @@ def render_chat_ui() -> str:
         }
       }
 
+      clearHistoryEl.addEventListener("click", () => {
+        historyItems = [];
+        persistHistory();
+        renderHistory();
+      });
       submitEl.addEventListener("click", askQuestion);
       loginEl.addEventListener("click", login);
       logoutEl.addEventListener("click", logout);
@@ -610,6 +971,14 @@ def render_chat_ui() -> str:
         }
       });
 
+      historyItems = loadHistory().slice(0, MAX_HISTORY_ITEMS);
+      renderHistory();
+      renderAnswerMeta(null);
+      refreshReadiness().catch(() => {
+        readinessBadgeEl.dataset.state = "degraded";
+        readinessLabelEl.textContent = "Readiness check unavailable";
+        readinessNoteEl.textContent = "The browser could not load /ready.";
+      });
       refreshAuthStatus().catch(() => {
         sessionStateEl.textContent = "Auth status: unavailable";
       });

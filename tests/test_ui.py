@@ -18,7 +18,11 @@ def test_home_page_returns_html():
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Ask the RAG System" in response.text
-    assert "Connected to the local RAG API" in response.text
+    assert "Checking deployment readiness" in response.text
     assert "X-Request-ID" in response.text
     assert "Sign In" in response.text
     assert "/session" in response.text
+    assert "/ready" in response.text
+    assert "Recent Questions" in response.text
+    assert "Clear History" in response.text
+    assert "Response ID" in response.text

@@ -18,6 +18,7 @@ from app.observability import add_observability_middleware
 from app.openai_client import create_openai_client
 from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
 from app.rate_limit import InMemoryRateLimiter, build_rate_limit_key
+from app.readiness import build_readiness_report
 from app.session_auth import (
     create_signed_session_value,
     verify_session_credentials,
@@ -62,6 +63,16 @@ class SessionResponse(BaseModel):
     authenticated: bool
     session_login_enabled: bool
     token_login_enabled: bool
+
+
+class ReadinessCheck(BaseModel):
+    status: str
+    detail: str
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    checks: dict[str, ReadinessCheck]
 
 
 def build_env_rag_runner() -> Callable[..., dict[str, object]]:
@@ -153,6 +164,7 @@ def create_app(
     api_settings: ApiSettings | None = None,
     observability_settings: ObservabilitySettings | None = None,
     rate_limiter: InMemoryRateLimiter | None = None,
+    readiness_checker: Callable[[], dict[str, object]] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="RAG System API", version="0.1.0")
     app.state.rag_runner = rag_runner or build_env_rag_runner()
@@ -160,6 +172,7 @@ def create_app(
     app.state.rate_limiter = rate_limiter or InMemoryRateLimiter(
         RateLimitSettings.from_env()
     )
+    app.state.readiness_checker = readiness_checker or build_readiness_report
     add_observability_middleware(
         app,
         observability_settings or ObservabilitySettings.from_env(),
@@ -168,6 +181,13 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/ready", response_model=ReadinessResponse)
+    def ready(response: Response) -> dict[str, object]:
+        readiness = app.state.readiness_checker()
+        if readiness["status"] != "ready":
+            response.status_code = 503
+        return readiness
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:

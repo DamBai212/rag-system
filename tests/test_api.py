@@ -24,6 +24,73 @@ def test_health_endpoint_returns_ok():
     assert response.headers[REQUEST_ID_HEADER]
 
 
+def test_ready_endpoint_returns_readiness_report():
+    client = TestClient(
+        create_app(
+            rag_runner=lambda **kwargs: {},
+            api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+            readiness_checker=lambda: {
+                "status": "ready",
+                "checks": {
+                    "elasticsearch": {
+                        "status": "ok",
+                        "detail": "Elasticsearch connectivity verified.",
+                    },
+                    "openai": {
+                        "status": "ok",
+                        "detail": "OpenAI client configured for model gpt-4o-mini.",
+                    },
+                    "auth": {
+                        "status": "ok",
+                        "detail": "Bearer token auth is configured.",
+                    },
+                },
+            },
+        )
+    )
+
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert response.json()["checks"]["elasticsearch"]["status"] == "ok"
+    assert response.headers[REQUEST_ID_HEADER]
+
+
+def test_ready_endpoint_returns_503_when_degraded():
+    client = TestClient(
+        create_app(
+            rag_runner=lambda **kwargs: {},
+            api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+            readiness_checker=lambda: {
+                "status": "degraded",
+                "checks": {
+                    "elasticsearch": {
+                        "status": "error",
+                        "detail": "Elasticsearch ping failed.",
+                    },
+                    "openai": {
+                        "status": "ok",
+                        "detail": "OpenAI client configured for model gpt-4o-mini.",
+                    },
+                    "auth": {
+                        "status": "ok",
+                        "detail": "Bearer token auth is configured.",
+                    },
+                },
+            },
+        )
+    )
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "degraded"
+    assert response.headers[REQUEST_ID_HEADER]
+
+
 def test_ask_endpoint_returns_pipeline_response():
     captured = {}
 

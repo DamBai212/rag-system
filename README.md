@@ -27,7 +27,8 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - optional bearer-token protection for the `/ask` endpoint
 - container-ready runtime entrypoint for hosted deployment
 - request IDs and structured request logging for API observability
-- lightweight browser UI served directly from the FastAPI app
+- structured readiness checks for Elasticsearch, OpenAI, and auth configuration
+- lightweight browser UI served directly from the FastAPI app, with local answer history and retrieval metadata
 - browser-friendly session auth with either a shared API token or dedicated username/password credentials
 - tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
 
@@ -229,6 +230,10 @@ curl -X POST http://127.0.0.1:8000/ask \
 
 Every API response also includes an `X-Request-ID` header. You can provide your
 own `X-Request-ID` value, or let the API generate one for tracing.
+
+Use `GET /ready` for deployment readiness. It returns `200` when Elasticsearch,
+OpenAI, and auth configuration checks pass, and `503` when the app still needs
+setup.
 
 The browser UI can also authenticate by sending either the shared API token or
 dedicated session credentials to `POST /session`, which sets a signed,
