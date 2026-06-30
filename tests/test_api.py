@@ -91,6 +91,44 @@ def test_ready_endpoint_returns_503_when_degraded():
     assert response.headers[REQUEST_ID_HEADER]
 
 
+def test_sources_endpoint_returns_source_catalog():
+    client = TestClient(
+        create_app(
+            rag_runner=lambda **kwargs: {},
+            api_settings=ApiSettings(api_token=None),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+            source_lister=lambda: ["docs.txt", "faq.txt"],
+        )
+    )
+
+    response = client.get("/sources")
+
+    assert response.status_code == 200
+    assert response.json() == {"sources": ["docs.txt", "faq.txt"]}
+    assert response.headers[REQUEST_ID_HEADER]
+
+
+def test_sources_endpoint_requires_same_auth_as_ask():
+    client = TestClient(
+        create_app(
+            rag_runner=lambda **kwargs: {},
+            api_settings=ApiSettings(api_token="secret-token"),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+            source_lister=lambda: ["docs.txt"],
+        )
+    )
+
+    unauthorized = client.get("/sources")
+    assert unauthorized.status_code == 401
+
+    authorized = client.get(
+        "/sources",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert authorized.status_code == 200
+    assert authorized.json() == {"sources": ["docs.txt"]}
+
+
 def test_ask_endpoint_returns_pipeline_response():
     captured = {}
 
@@ -145,10 +183,46 @@ def test_ask_endpoint_returns_pipeline_response():
     assert captured == {
         "question": "What is RAG?",
         "top_k": 3,
+        "sources": [],
         "index": None,
         "model": None,
     }
     assert response.headers[REQUEST_ID_HEADER]
+
+
+def test_ask_endpoint_passes_source_filters_to_rag_runner():
+    captured = {}
+
+    def fake_rag_runner(**kwargs):
+        captured.update(kwargs)
+        return {
+            "question": kwargs["question"],
+            "answer": "Grounded answer",
+            "sources": [],
+            "model": "gpt-4o-mini",
+            "response_id": None,
+            "retrieved_chunk_count": 0,
+        }
+
+    client = TestClient(
+        create_app(
+            rag_runner=fake_rag_runner,
+            api_settings=ApiSettings(api_token=None),
+            observability_settings=ObservabilitySettings(log_level="INFO"),
+        )
+    )
+
+    response = client.post(
+        "/ask",
+        json={
+            "question": "What changed in the latest release?",
+            "top_k": 3,
+            "sources": ["release-notes.txt"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["sources"] == ["release-notes.txt"]
 
 
 def test_ask_endpoint_returns_404_when_no_chunks_found():

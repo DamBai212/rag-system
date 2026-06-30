@@ -18,6 +18,7 @@ def run_rag_pipeline(
     index_name: str,
     model: str,
     top_k: int = 3,
+    sources: list[str] | None = None,
     max_output_tokens: int = 400,
     search_fn: Callable[..., list[Mapping[str, object]]] = search_chunks,
     generate_fn: Callable[..., dict[str, object]] = generate_grounded_answer,
@@ -30,6 +31,7 @@ def run_rag_pipeline(
         index_name=index_name,
         query=question,
         top_k=top_k,
+        sources=sources,
     )
 
     if not chunks:

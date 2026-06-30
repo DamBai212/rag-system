@@ -23,6 +23,8 @@ def test_home_page_returns_html():
     assert "Sign In" in response.text
     assert "/session" in response.text
     assert "/ready" in response.text
+    assert "/sources" in response.text
     assert "Recent Questions" in response.text
     assert "Clear History" in response.text
     assert "Response ID" in response.text
+    assert "Source Scope" in response.text

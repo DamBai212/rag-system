@@ -19,6 +19,7 @@ from app.openai_client import create_openai_client
 from app.pipeline import NoRetrievedChunksError, run_rag_pipeline
 from app.rate_limit import InMemoryRateLimiter, build_rate_limit_key
 from app.readiness import build_readiness_report
+from app.retrieval import list_index_sources
 from app.session_auth import (
     create_signed_session_value,
     verify_session_credentials,
@@ -32,6 +33,7 @@ SESSION_COOKIE_NAME = "rag_session"
 class AskRequest(BaseModel):
     question: str
     top_k: int = Field(default=3, gt=0)
+    sources: list[str] = Field(default_factory=list)
     index: str | None = None
     model: str | None = None
 
@@ -75,11 +77,16 @@ class ReadinessResponse(BaseModel):
     checks: dict[str, ReadinessCheck]
 
 
+class SourceCatalogResponse(BaseModel):
+    sources: list[str]
+
+
 def build_env_rag_runner() -> Callable[..., dict[str, object]]:
     def rag_runner(
         *,
         question: str,
         top_k: int = 3,
+        sources: list[str] | None = None,
         index: str | None = None,
         model: str | None = None,
     ) -> dict[str, object]:
@@ -95,10 +102,26 @@ def build_env_rag_runner() -> Callable[..., dict[str, object]]:
             index_name=index or elastic_settings.index_name,
             model=model or openai_settings.model,
             top_k=top_k,
+            sources=sources,
             max_output_tokens=openai_settings.max_output_tokens,
         )
 
     return rag_runner
+
+
+def build_env_source_lister() -> Callable[..., list[str]]:
+    def source_lister(
+        *,
+        index: str | None = None,
+    ) -> list[str]:
+        elastic_settings = ElasticsearchSettings.from_env()
+        elastic_client = create_elasticsearch_client(elastic_settings)
+        return list_index_sources(
+            elastic_client,
+            index_name=index or elastic_settings.index_name,
+        )
+
+    return source_lister
 
 
 def build_session_response(
@@ -165,6 +188,7 @@ def create_app(
     observability_settings: ObservabilitySettings | None = None,
     rate_limiter: InMemoryRateLimiter | None = None,
     readiness_checker: Callable[[], dict[str, object]] | None = None,
+    source_lister: Callable[..., list[str]] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="RAG System API", version="0.1.0")
     app.state.rag_runner = rag_runner or build_env_rag_runner()
@@ -173,6 +197,7 @@ def create_app(
         RateLimitSettings.from_env()
     )
     app.state.readiness_checker = readiness_checker or build_readiness_report
+    app.state.source_lister = source_lister or build_env_source_lister()
     add_observability_middleware(
         app,
         observability_settings or ObservabilitySettings.from_env(),
@@ -192,6 +217,18 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
         return render_chat_ui()
+
+    @app.get("/sources", response_model=SourceCatalogResponse)
+    def sources(
+        authorization: str | None = Header(default=None),
+        session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    ) -> SourceCatalogResponse:
+        require_request_auth(
+            authorization,
+            session_token,
+            app.state.api_settings,
+        )
+        return SourceCatalogResponse(sources=app.state.source_lister())
 
     @app.get("/auth/status", response_model=SessionResponse)
     def auth_status(
@@ -264,6 +301,7 @@ def create_app(
             result = app.state.rag_runner(
                 question=request.question,
                 top_k=request.top_k,
+                sources=request.sources,
                 index=request.index,
                 model=request.model,
             )

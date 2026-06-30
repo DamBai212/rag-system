@@ -221,7 +221,7 @@ def render_chat_ui() -> str:
 
       .field-grid {
         display: grid;
-        grid-template-columns: 1.2fr 0.8fr;
+        grid-template-columns: 0.7fr 1fr 1.3fr;
         gap: 14px;
       }
 
@@ -511,6 +511,12 @@ def render_chat_ui() -> str:
                 <option value="8">8 chunks</option>
               </select>
             </div>
+            <div>
+              <label for="source-filter">Source Scope</label>
+              <select id="source-filter" disabled>
+                <option value="">Loading sources...</option>
+              </select>
+            </div>
             <div class="hint" id="auth-hint">
               Use the sign-in controls above if the API is protected. Once the
               session cookie is set, the browser UI can call <code>/ask</code>
@@ -571,6 +577,7 @@ def render_chat_ui() -> str:
       const usernameEl = document.getElementById("username");
       const passwordEl = document.getElementById("password");
       const topKEl = document.getElementById("top-k");
+      const sourceFilterEl = document.getElementById("source-filter");
       const submitEl = document.getElementById("submit");
       const loginEl = document.getElementById("login");
       const logoutEl = document.getElementById("logout");
@@ -726,6 +733,7 @@ def render_chat_ui() -> str:
           buttonEl.addEventListener("click", () => {
             questionEl.value = item.question || "";
             topKEl.value = String(item.top_k || 3);
+            ensureSourceOption(item.source_filter || "");
             renderResult(item, item.request_id || "history");
           });
 
@@ -738,7 +746,7 @@ def render_chat_ui() -> str:
 
           const metaEl = document.createElement("div");
           metaEl.className = "history-meta";
-          metaEl.textContent = `${formatSavedAt(item.saved_at)} | model ${item.model || "unknown"} | ${item.retrieved_chunk_count ?? 0} chunks | ${(item.sources || []).length} sources`;
+          metaEl.textContent = `${formatSavedAt(item.saved_at)} | source ${item.source_filter || "all"} | model ${item.model || "unknown"} | ${item.retrieved_chunk_count ?? 0} chunks | ${(item.sources || []).length} sources`;
 
           buttonEl.append(titleEl, previewEl, metaEl);
           historyEl.append(buttonEl);
@@ -754,6 +762,7 @@ def render_chat_ui() -> str:
           response_id: payload.response_id || null,
           retrieved_chunk_count: payload.retrieved_chunk_count ?? 0,
           top_k: Number(topKEl.value),
+          source_filter: sourceFilterEl.value || "",
           request_id: requestId || "missing",
           saved_at: new Date().toISOString()
         };
@@ -771,6 +780,74 @@ def render_chat_ui() -> str:
 
         persistHistory();
         renderHistory();
+      }
+
+      function setSourceFilterOptions(sources, emptyLabel = "All sources") {
+        const selectedSource = sourceFilterEl.value;
+        sourceFilterEl.replaceChildren();
+
+        const defaultOptionEl = document.createElement("option");
+        defaultOptionEl.value = "";
+        defaultOptionEl.textContent = emptyLabel;
+        sourceFilterEl.append(defaultOptionEl);
+
+        sources.forEach((source) => {
+          const optionEl = document.createElement("option");
+          optionEl.value = source;
+          optionEl.textContent = source;
+          sourceFilterEl.append(optionEl);
+        });
+
+        sourceFilterEl.value = sources.includes(selectedSource) ? selectedSource : "";
+      }
+
+      function ensureSourceOption(source) {
+        if (!source) {
+          sourceFilterEl.value = "";
+          return;
+        }
+
+        const hasSource = Array.from(sourceFilterEl.options).some((option) => {
+          return option.value === source;
+        });
+
+        if (!hasSource) {
+          const optionEl = document.createElement("option");
+          optionEl.value = source;
+          optionEl.textContent = source;
+          sourceFilterEl.append(optionEl);
+        }
+
+        sourceFilterEl.value = source;
+      }
+
+      async function refreshSourceCatalog() {
+        if (authState.auth_enabled && !authState.authenticated) {
+          setSourceFilterOptions([], "Sign in to scope by source");
+          sourceFilterEl.disabled = true;
+          return [];
+        }
+
+        sourceFilterEl.disabled = true;
+        setSourceFilterOptions([], "Loading sources...");
+
+        try {
+          const response = await fetch("/sources");
+          const payload = await response.json();
+
+          if (!response.ok) {
+            throw new Error(payload.detail || "Failed to load sources.");
+          }
+
+          const sources = Array.isArray(payload.sources) ? payload.sources : [];
+          setSourceFilterOptions(sources, "All sources");
+          sourceFilterEl.disabled = false;
+          return sources;
+        } catch (error) {
+          setSourceFilterOptions([], "All sources");
+          sourceFilterEl.disabled = false;
+          return [];
+        }
       }
 
       function summarizeReadinessChecks(checks) {
@@ -894,6 +971,7 @@ def render_chat_ui() -> str:
           usernameEl.value = "";
           passwordEl.value = "";
           await refreshAuthStatus();
+          await refreshSourceCatalog();
         } catch (error) {
           errorEl.textContent = error.message;
           errorEl.hidden = false;
@@ -904,6 +982,7 @@ def render_chat_ui() -> str:
         errorEl.hidden = true;
         await fetch("/session", { method: "DELETE" });
         await refreshAuthStatus();
+        await refreshSourceCatalog();
       }
 
       async function askQuestion() {
@@ -930,7 +1009,8 @@ def render_chat_ui() -> str:
             },
             body: JSON.stringify({
               question,
-              top_k: Number(topKEl.value)
+              top_k: Number(topKEl.value),
+              sources: sourceFilterEl.value ? [sourceFilterEl.value] : []
             })
           });
 
@@ -979,9 +1059,13 @@ def render_chat_ui() -> str:
         readinessLabelEl.textContent = "Readiness check unavailable";
         readinessNoteEl.textContent = "The browser could not load /ready.";
       });
-      refreshAuthStatus().catch(() => {
-        sessionStateEl.textContent = "Auth status: unavailable";
-      });
+      refreshAuthStatus()
+        .then(() => refreshSourceCatalog())
+        .catch(() => {
+          sessionStateEl.textContent = "Auth status: unavailable";
+          setSourceFilterOptions([], "All sources");
+          sourceFilterEl.disabled = false;
+        });
     </script>
   </body>
 </html>

@@ -29,6 +29,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override the OpenAI model from the environment.",
     )
+    parser.add_argument(
+        "--source",
+        action="append",
+        default=[],
+        help="Filter retrieval to a specific source. Repeat to include multiple sources.",
+    )
     return parser.parse_args()
 
 
@@ -50,6 +56,7 @@ def main() -> int:
             index_name=index_name,
             model=model_name,
             top_k=args.top_k,
+            sources=args.source,
             max_output_tokens=openai_settings.max_output_tokens,
         )
     except NoRetrievedChunksError as exc:

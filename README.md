@@ -28,7 +28,8 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - container-ready runtime entrypoint for hosted deployment
 - request IDs and structured request logging for API observability
 - structured readiness checks for Elasticsearch, OpenAI, and auth configuration
-- lightweight browser UI served directly from the FastAPI app, with local answer history and retrieval metadata
+- source-scoped retrieval for narrowing questions to selected documents
+- lightweight browser UI served directly from the FastAPI app, with local answer history, retrieval metadata, and source filtering
 - browser-friendly session auth with either a shared API token or dedicated username/password credentials
 - tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
 
@@ -219,6 +220,14 @@ curl -X POST http://127.0.0.1:8000/ask \
   -d '{"question":"How does RAG reduce hallucinations?","top_k":3}'
 ```
 
+To scope retrieval to specific source documents:
+
+```bash
+curl -X POST http://127.0.0.1:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What changed in the latest release?","top_k":3,"sources":["release-notes.txt"]}'
+```
+
 If `RAG_API_TOKEN` is set, include a bearer token:
 
 ```bash
@@ -234,6 +243,9 @@ own `X-Request-ID` value, or let the API generate one for tracing.
 Use `GET /ready` for deployment readiness. It returns `200` when Elasticsearch,
 OpenAI, and auth configuration checks pass, and `503` when the app still needs
 setup.
+
+Use `GET /sources` to retrieve the distinct indexed source names available for
+source-scoped querying. It follows the same auth rules as `POST /ask`.
 
 The browser UI can also authenticate by sending either the shared API token or
 dedicated session credentials to `POST /session`, which sets a signed,
@@ -253,7 +265,8 @@ default. Tune the threshold with `RATE_LIMIT_MAX_REQUESTS` and
 
 Start the API, then open `http://127.0.0.1:8000/` in a browser. The UI talks to
 the same `POST /ask` endpoint and supports optional browser sign-in with either
-a shared token or dedicated session credentials.
+a shared token or dedicated session credentials. You can also scope questions to
+an indexed source directly from the browser.
 
 ## Deployment
 

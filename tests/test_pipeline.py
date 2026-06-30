@@ -46,6 +46,7 @@ def test_run_rag_pipeline_returns_grounded_answer():
         index_name="rag-docs",
         model="gpt-4o-mini",
         top_k=3,
+        sources=["docs.txt"],
         max_output_tokens=250,
         search_fn=fake_search,
         generate_fn=fake_generate,
@@ -73,6 +74,7 @@ def test_run_rag_pipeline_returns_grounded_answer():
                 "index_name": "rag-docs",
                 "query": "What is RAG?",
                 "top_k": 3,
+                "sources": ["docs.txt"],
             },
         )
     ]
