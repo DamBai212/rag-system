@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+VALID_LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
+
 
 def _read_optional_env(name: str) -> str | None:
     value = os.getenv(name, "").strip()
@@ -16,6 +18,26 @@ def _parse_bool(value: str) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"Invalid boolean value: {value!r}")
+
+
+def _parse_positive_int(name: str, value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer.") from exc
+
+    if parsed <= 0:
+        raise ValueError(f"{name} must be greater than 0.")
+
+    return parsed
+
+
+def _parse_log_level(value: str) -> str:
+    normalized = value.strip().upper()
+    if normalized not in VALID_LOG_LEVELS:
+        expected = ", ".join(sorted(VALID_LOG_LEVELS))
+        raise ValueError(f"LOG_LEVEL must be one of: {expected}.")
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -50,14 +72,7 @@ class ElasticsearchSettings:
                 "Set ELASTIC_API_KEY or both ELASTIC_USERNAME and ELASTIC_PASSWORD."
             )
 
-        try:
-            request_timeout = int(timeout_raw)
-        except ValueError as exc:
-            raise ValueError("ELASTIC_REQUEST_TIMEOUT must be an integer.") from exc
-
-        if request_timeout <= 0:
-            raise ValueError("ELASTIC_REQUEST_TIMEOUT must be greater than 0.")
-
+        request_timeout = _parse_positive_int("ELASTIC_REQUEST_TIMEOUT", timeout_raw)
         verify_certs = _parse_bool(verify_raw)
 
         return cls(
@@ -99,3 +114,114 @@ class ElasticsearchSettings:
         if self.endpoint:
             return self.endpoint
         raise ValueError("An Elasticsearch connection target is required.")
+
+
+@dataclass(frozen=True)
+class OpenAISettings:
+    api_key: str
+    model: str = "gpt-4o-mini"
+    max_output_tokens: int = 400
+
+    @classmethod
+    def from_env(cls) -> "OpenAISettings":
+        api_key = _read_optional_env("OPENAI_API_KEY")
+        model = _read_optional_env("OPENAI_MODEL") or "gpt-4o-mini"
+        max_tokens_raw = os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "400").strip()
+
+        if not api_key:
+            raise ValueError("Set OPENAI_API_KEY before generating responses.")
+
+        max_output_tokens = _parse_positive_int(
+            "OPENAI_MAX_OUTPUT_TOKENS",
+            max_tokens_raw,
+        )
+
+        return cls(
+            api_key=api_key,
+            model=model,
+            max_output_tokens=max_output_tokens,
+        )
+
+    def client_options(self) -> dict[str, object]:
+        return {"api_key": self.api_key}
+
+
+@dataclass(frozen=True)
+class ApiSettings:
+    api_token: str | None = None
+    session_secret: str | None = None
+    session_username: str | None = None
+    session_password_hash: str | None = None
+    session_ttl_seconds: int = 43200
+    session_cookie_secure: bool = False
+
+    @classmethod
+    def from_env(cls) -> "ApiSettings":
+        ttl_raw = os.getenv("SESSION_TTL_SECONDS", "43200").strip()
+        secure_raw = os.getenv("SESSION_COOKIE_SECURE", "false")
+        session_username = _read_optional_env("SESSION_USERNAME")
+        session_password_hash = _read_optional_env("SESSION_PASSWORD_HASH")
+
+        if bool(session_username) != bool(session_password_hash):
+            raise ValueError(
+                "Set both SESSION_USERNAME and SESSION_PASSWORD_HASH together."
+            )
+
+        return cls(
+            api_token=_read_optional_env("RAG_API_TOKEN"),
+            session_secret=_read_optional_env("SESSION_SECRET"),
+            session_username=session_username,
+            session_password_hash=session_password_hash,
+            session_ttl_seconds=_parse_positive_int("SESSION_TTL_SECONDS", ttl_raw),
+            session_cookie_secure=_parse_bool(secure_raw),
+        )
+
+    def api_token_auth_enabled(self) -> bool:
+        return bool(self.api_token)
+
+    def session_auth_enabled(self) -> bool:
+        return bool(self.session_username and self.session_password_hash)
+
+    def request_auth_enabled(self) -> bool:
+        return self.api_token_auth_enabled() or self.session_auth_enabled()
+
+    def auth_enabled(self) -> bool:
+        return self.request_auth_enabled()
+
+    def session_signing_secret(self) -> str | None:
+        return self.session_secret or self.session_password_hash or self.api_token
+
+
+@dataclass(frozen=True)
+class ObservabilitySettings:
+    log_level: str = "INFO"
+
+    @classmethod
+    def from_env(cls) -> "ObservabilitySettings":
+        log_level = _parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
+        return cls(log_level=log_level)
+
+
+@dataclass(frozen=True)
+class RateLimitSettings:
+    enabled: bool = True
+    max_requests: int = 20
+    window_seconds: int = 60
+
+    @classmethod
+    def from_env(cls) -> "RateLimitSettings":
+        enabled_raw = os.getenv("RATE_LIMIT_ENABLED", "true")
+        max_requests_raw = os.getenv("RATE_LIMIT_MAX_REQUESTS", "20").strip()
+        window_seconds_raw = os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60").strip()
+
+        return cls(
+            enabled=_parse_bool(enabled_raw),
+            max_requests=_parse_positive_int(
+                "RATE_LIMIT_MAX_REQUESTS",
+                max_requests_raw,
+            ),
+            window_seconds=_parse_positive_int(
+                "RATE_LIMIT_WINDOW_SECONDS",
+                window_seconds_raw,
+            ),
+        )
