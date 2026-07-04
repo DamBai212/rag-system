@@ -8,6 +8,7 @@ GROUNDING_INSTRUCTIONS = (
     "context. If the context is incomplete or does not contain the answer, say "
     "so clearly. Keep the answer concise and practical."
 )
+SOURCE_EXCERPT_MAX_CHARS = 240
 
 
 def format_context_chunks(chunks: list[Mapping[str, object]]) -> str:
@@ -48,6 +49,24 @@ def build_grounded_prompt(question: str, chunks: list[Mapping[str, object]]) -> 
     )
 
 
+def build_source_excerpt(
+    text: object,
+    *,
+    max_chars: int = SOURCE_EXCERPT_MAX_CHARS,
+) -> str | None:
+    cleaned_text = " ".join(str(text or "").split())
+    if not cleaned_text:
+        return None
+
+    if max_chars <= 3 or len(cleaned_text) <= max_chars:
+        return cleaned_text[:max_chars] if max_chars > 0 else None
+
+    truncated = cleaned_text[: max_chars - 3].rstrip()
+    if " " in truncated:
+        truncated = truncated.rsplit(" ", 1)[0]
+    return f"{truncated}..."
+
+
 def collect_sources(chunks: list[Mapping[str, object]]) -> list[dict[str, object]]:
     sources = []
     seen_ids: set[str] = set()
@@ -64,6 +83,7 @@ def collect_sources(chunks: list[Mapping[str, object]]) -> list[dict[str, object
                 "source": chunk.get("source"),
                 "chunk_index": chunk.get("chunk_index"),
                 "score": chunk.get("score"),
+                "excerpt": build_source_excerpt(chunk.get("text")),
             }
         )
 

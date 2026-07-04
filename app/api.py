@@ -43,6 +43,7 @@ class SourceReference(BaseModel):
     source: str | None
     chunk_index: int | None
     score: float | None
+    excerpt: str | None = None
 
 
 class AskResponse(BaseModel):

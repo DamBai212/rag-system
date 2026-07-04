@@ -76,6 +76,8 @@ def main() -> int:
             f"- id={source['id']} source={source['source']} "
             f"chunk_index={source['chunk_index']} score={score_text}"
         )
+        if source.get("excerpt"):
+            print(f"  excerpt={source['excerpt']}")
 
     response_id = result["response_id"]
     if response_id:

@@ -29,7 +29,7 @@ A RAG architecture solves this by retrieving relevant internal content first and
 - request IDs and structured request logging for API observability
 - structured readiness checks for Elasticsearch, OpenAI, and auth configuration
 - source-scoped retrieval for narrowing questions to selected documents
-- lightweight browser UI served directly from the FastAPI app, with local answer history, retrieval metadata, and source filtering
+- lightweight browser UI served directly from the FastAPI app, with local answer history, retrieval metadata, source filtering, and supporting source snippets
 - browser-friendly session auth with either a shared API token or dedicated username/password credentials
 - tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
 
@@ -246,6 +246,10 @@ setup.
 
 Use `GET /sources` to retrieve the distinct indexed source names available for
 source-scoped querying. It follows the same auth rules as `POST /ask`.
+
+Each returned source reference also includes a short excerpt from the retrieved
+chunk so reviewers can inspect the evidence behind an answer without opening the
+full document first.
 
 The browser UI can also authenticate by sending either the shared API token or
 dedicated session credentials to `POST /session`, which sets a signed,

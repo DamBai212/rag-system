@@ -4,6 +4,7 @@ import pytest
 
 from app.generation import (
     build_grounded_prompt,
+    build_source_excerpt,
     collect_sources,
     format_context_chunks,
     generate_grounded_answer,
@@ -44,6 +45,16 @@ def test_build_grounded_prompt_includes_question_and_context():
     assert "RAG retrieves relevant context" in prompt
 
 
+def test_build_source_excerpt_normalizes_whitespace_and_truncates():
+    excerpt = build_source_excerpt(
+        "RAG   retrieves relevant context before answer generation.\n"
+        "This extra sentence keeps going for quite a while.",
+        max_chars=55,
+    )
+
+    assert excerpt == "RAG retrieves relevant context before answer..."
+
+
 def test_collect_sources_deduplicates_by_chunk_id():
     sources = collect_sources(
         [
@@ -54,6 +65,9 @@ def test_collect_sources_deduplicates_by_chunk_id():
     )
 
     assert [source["id"] for source in sources] == ["docs_0", "docs_1"]
+    assert sources[0]["excerpt"] == (
+        "RAG retrieves relevant context before answer generation."
+    )
 
 
 def test_generate_grounded_answer_calls_openai_responses_api():
@@ -83,6 +97,9 @@ def test_generate_grounded_answer_calls_openai_responses_api():
     assert result["answer"] == "RAG retrieves context before generating the answer."
     assert result["model"] == "gpt-4o-mini"
     assert result["response_id"] == "resp_123"
+    assert result["sources"][0]["excerpt"] == (
+        "RAG retrieves relevant context before answer generation."
+    )
     assert responses_api.calls == [
         {
             "model": "gpt-4o-mini",

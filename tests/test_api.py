@@ -143,6 +143,7 @@ def test_ask_endpoint_returns_pipeline_response():
                     "source": "docs.txt",
                     "chunk_index": 0,
                     "score": 1.5,
+                    "excerpt": "RAG retrieves context before generation.",
                 }
             ],
             "model": "gpt-4o-mini",
@@ -174,6 +175,7 @@ def test_ask_endpoint_returns_pipeline_response():
                 "source": "docs.txt",
                 "chunk_index": 0,
                 "score": 1.5,
+                "excerpt": "RAG retrieves context before generation.",
             }
         ],
         "model": "gpt-4o-mini",

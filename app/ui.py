@@ -334,6 +334,12 @@ def render_chat_ui() -> str:
         font-size: 0.92rem;
       }
 
+      .source-excerpt {
+        margin: 10px 0 0;
+        color: var(--text);
+        line-height: 1.6;
+      }
+
       .empty {
         color: var(--muted);
         line-height: 1.6;
@@ -449,8 +455,8 @@ def render_chat_ui() -> str:
           <article class="mini-card">
             <strong>What you get</strong>
             <p>
-              A concise answer, the model used, the request id, and source
-              references for fast follow-up.
+              A concise answer, the model used, the request id, and supporting
+              source snippets for fast follow-up.
             </p>
           </article>
           <article class="mini-card">
@@ -546,7 +552,7 @@ def render_chat_ui() -> str:
           <article class="sources-card">
             <p class="section-title">Sources</p>
             <div id="sources" class="sources">
-              <div class="empty">Source references will appear here.</div>
+              <div class="empty">Source references and supporting snippets will appear here.</div>
             </div>
           </article>
         </section>
@@ -660,6 +666,14 @@ def render_chat_ui() -> str:
           metaEl.textContent = `id=${source.id || "n/a"} | chunk=${source.chunk_index ?? "n/a"} | score=${source.score ?? "n/a"}`;
 
           articleEl.append(titleEl, metaEl);
+
+          if (source.excerpt) {
+            const excerptEl = document.createElement("p");
+            excerptEl.className = "source-excerpt";
+            excerptEl.textContent = source.excerpt;
+            articleEl.append(excerptEl);
+          }
+
           sourcesEl.append(articleEl);
         });
       }

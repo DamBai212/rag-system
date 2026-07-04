@@ -28,3 +28,4 @@ def test_home_page_returns_html():
     assert "Clear History" in response.text
     assert "Response ID" in response.text
     assert "Source Scope" in response.text
+    assert "supporting snippets" in response.text
