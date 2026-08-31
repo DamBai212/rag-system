@@ -6,8 +6,9 @@ A FastAPI + Elasticsearch service that answers questions by retrieving relevant 
 
 ## Demo
 
-<!-- TODO: add a screenshot or short GIF of the browser UI (ask a question, show the answer + sources) -->
-_Screenshot/demo coming soon — run the app locally with the quickstart below to try it now._
+![Browser UI showing a question, a grounded answer, and its supporting sources](docs/browser-ui.png)
+
+_The question, answer, and sources shown here are from a locally seeded example (no live Elasticsearch/OpenAI credentials were used to generate this screenshot) — the UI and request/response flow are real. Run the app yourself with the quickstart below to try it against your own documents._
 
 ## What this repo implements
 
