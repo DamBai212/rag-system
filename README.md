@@ -1,218 +1,133 @@
 # RAG System
 
-This repository is the foundation of a Retrieval-Augmented Generation (RAG) system: it chunks source documents, validates Elasticsearch configuration, creates an index, bulk-loads searchable chunks, retrieves the most relevant context for a user query, generates a grounded answer with OpenAI, and now exposes that flow through a FastAPI endpoint.
+[![Tests](https://github.com/DamBai212/rag-system/actions/workflows/tests.yml/badge.svg)](https://github.com/DamBai212/rag-system/actions/workflows/tests.yml)
 
-Today, the codebase implements the ingestion, indexing, retrieval, answer-generation, API, deployment-entrypoint, basic observability, browser UI, and production-oriented session auth layers. The next natural step is hosted deployment and deeper UX polish for real users.
+A FastAPI + Elasticsearch service that answers questions by retrieving relevant chunks of your own documents and asking an LLM to generate a grounded, source-cited answer instead of hallucinating from parametric memory alone.
 
-## Problem Statement
+## Demo
 
-Teams often store critical knowledge across scattered documents, runbooks, support notes, and internal guides. That creates three recurring problems:
+![Browser UI showing a question, a grounded answer, and its supporting sources](docs/browser-ui.png)
 
-- finding the right answer takes too long
-- knowledge lives in people rather than systems
-- LLMs used without retrieval can sound confident while being wrong
+_The question, answer, and sources shown here are from a locally seeded example (no live Elasticsearch/OpenAI credentials were used to generate this screenshot) — the UI and request/response flow are real. Run the app yourself with the quickstart below to try it against your own documents._
 
-A RAG architecture solves this by retrieving relevant internal content first and only then asking an LLM to generate an answer grounded in that context.
+## What this repo implements
 
-## What This Repo Implements Today
-
-- document chunking from local text sources
-- structured chunk metadata (`id`, `text`, `source`, `chunk_index`)
-- Elasticsearch connection configuration via environment variables
-- index creation with strict mappings
-- bulk indexing into Elasticsearch
-- retrieval of top matching chunks from Elasticsearch
-- grounded answer generation with OpenAI
-- FastAPI application boundary for the full RAG flow
-- optional bearer-token protection for the `/ask` endpoint
-- container-ready runtime entrypoint for hosted deployment
-- request IDs and structured request logging for API observability
-- structured readiness checks for Elasticsearch, OpenAI, and auth configuration
-- source-scoped retrieval for narrowing questions to selected documents
-- lightweight browser UI served directly from the FastAPI app, with local answer history, retrieval metadata, source filtering, and supporting source snippets
-- browser-friendly session auth with either a shared API token or dedicated username/password credentials
-- tests for chunking, indexing, retrieval, generation, pipeline, API, and client setup
+- document chunking from local text sources, with stable per-chunk IDs and metadata
+- Elasticsearch index creation, bulk indexing, and BM25-based retrieval (with optional source filtering)
+- grounded answer generation via OpenAI, with citations back to the retrieved chunks
+- a FastAPI app exposing `/ask`, `/sources`, `/ready`, `/health`, and session/token auth endpoints
+- a lightweight browser UI served directly from the API, with answer history and source-scoped search
+- request IDs, structured request logging, and readiness checks for deployment
+- 86 tests covering chunking, indexing, retrieval, generation, auth, rate limiting, and the API layer
 
 ## Architecture
 
-### Current implemented flow
+### Request flow
 
 ```text
-source documents
-    |
-    v
-ingestion/chunk_docs.py
-    |
-    v
-data/chunks.json
-    |
-    v
-scripts/check_elasticsearch.py
-scripts/index_chunks.py
-    |
-    v
-Elasticsearch index (rag-docs)
-    |
-    v
-scripts/search_chunks.py
-    |
-    v
-retrieved context snippets
-    |
-    v
-scripts/answer_question.py
-    |
-    v
-grounded answer with source references
-    |
-    v
-FastAPI /ask endpoint
-```
-
-### Target end-to-end architecture
-
-```text
-Internal documents / SOPs / FAQs / runbooks
-                  |
-                  v
-        Chunking + metadata enrichment
-                  |
-                  v
-         Elasticsearch / vector-capable search
-                  |
-         user question arrives via API or UI
-                  |
-                  v
-          retrieve the most relevant chunks
-                  |
-                  v
-      send question + retrieved context to LLM
-                  |
-                  v
- grounded answer with traceable source references
+source documents (data/docs.txt)
+        |
+        v
+ingestion/chunk_docs.py  -->  data/chunks.json
+        |
+        v
+scripts/index_chunks.py  -->  Elasticsearch index (rag-docs)
+        |
+        v
+POST /ask  -->  app/retrieval.py (BM25 search, optional source filter)
+        |
+        v
+app/generation.py  -->  OpenAI (question + retrieved context)
+        |
+        v
+grounded answer + source excerpts
 ```
 
 ### Key components
 
-- `ingestion/chunk_docs.py`: splits documents into overlapping chunks and assigns stable metadata
-- `app/config.py`: centralizes Elasticsearch environment parsing and validation
-- `app/elasticsearch_client.py`: creates the Elasticsearch client
-- `app/indexing.py`: builds index mappings and bulk indexing actions
-- `app/openai_client.py`: creates the OpenAI client
-- `app/retrieval.py`: builds search queries and normalizes retrieved hits
-- `app/generation.py`: formats retrieved context and calls OpenAI for grounded answers
-- `app/pipeline.py`: orchestrates retrieval plus generation for shared CLI/API usage
-- `app/api.py`: exposes the full RAG flow through FastAPI
-- `app/server.py`: starts the API using environment-driven host/port settings
-- `app/observability.py`: adds request IDs and structured API request logging
-- `app/ui.py`: serves a lightweight browser interface for asking questions
-- `POST /session`, `DELETE /session`, and `GET /auth/status`: support browser login with an HTTP-only cookie
-- `scripts/check_elasticsearch.py`: verifies cluster connectivity
-- `scripts/index_chunks.py`: creates the index if needed and loads chunk data
-- `scripts/search_chunks.py`: searches indexed chunks from the terminal
-- `scripts/answer_question.py`: retrieves chunks and generates a grounded answer
+| Component | Responsibility |
+|---|---|
+| `ingestion/chunk_docs.py` | splits raw text into overlapping, fixed-size chunks with stable IDs |
+| `app/config.py` | parses and validates Elasticsearch/OpenAI/session/rate-limit settings from env vars |
+| `app/indexing.py` | builds the strict index mapping and bulk-index actions |
+| `app/retrieval.py` | builds Elasticsearch queries and normalizes search hits |
+| `app/generation.py` | formats retrieved context and calls OpenAI for a grounded answer |
+| `app/pipeline.py` | orchestrates retrieval + generation for both the CLI scripts and the API |
+| `app/api.py` | FastAPI app: `/ask`, `/sources`, `/ready`, `/health`, session auth |
+| `app/ui.py` | serves the browser UI |
 
-## Setup Instructions
+### A real design decision: lexical search over vector search
 
-### 1. Create a virtual environment
+Retrieval here uses Elasticsearch's BM25 `match` query on the chunk text, not embeddings or a vector index. That's a deliberate trade-off for this stage of the project, not an oversight:
+
+- **No embedding pipeline to run or keep in sync.** Every chunk is searchable the moment it's indexed — no batch embedding job, no vector store, no re-embedding when the model changes.
+- **Good fit for the actual queries.** Most internal-knowledge questions (support runbooks, FAQs, release notes) share vocabulary with the source documents, where BM25's term-overlap scoring already performs well. Vector search earns its complexity when queries and documents are worded very differently.
+- **Debuggable.** A BM25 score and matched terms are easy to reason about when an answer looks wrong; a cosine-similarity score over an opaque embedding is not.
+
+The trade-off: BM25 misses paraphrases and synonyms that don't share vocabulary with the source text. `app/retrieval.py` isolates query-building behind `build_chunk_search_query`, so swapping in (or adding, via hybrid search) a `dense_vector` field and a k-NN query later is a contained change, not a rewrite.
+
+Chunking is similarly simple on purpose: `ingestion/chunk_docs.py` splits on fixed character windows with overlap rather than sentence- or section-aware splitting. It's predictable and fast, at the cost of occasionally cutting a chunk mid-sentence — an acceptable trade for a project this size, and an isolated place to improve if recall on longer documents becomes an issue.
+
+## Quickstart
+
+Verified from a clean clone.
+
+### 1. Create a virtual environment and install dependencies
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-### 2. Install dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure environment variables
-
-Copy the example file:
+### 2. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Set one connection target:
+Then set, at minimum:
 
-- `ELASTIC_CLOUD_ID` for Elastic Cloud
-- `ELASTIC_ENDPOINT` for a local or self-managed Elasticsearch cluster
+- `OPENAI_API_KEY`
+- One Elasticsearch target: `ELASTIC_CLOUD_ID` or `ELASTIC_ENDPOINT`
+- One Elasticsearch credential: `ELASTIC_API_KEY`, or both `ELASTIC_USERNAME` and `ELASTIC_PASSWORD`
 
-Set one authentication method:
+See [Configuration reference](#configuration-reference) below for every optional setting.
 
-- `ELASTIC_API_KEY`
-- or both `ELASTIC_USERNAME` and `ELASTIC_PASSWORD`
-
-Optional settings:
-
-- `OPENAI_MODEL` defaults to `gpt-4o-mini`
-- `OPENAI_MAX_OUTPUT_TOKENS` defaults to `400`
-- `RAG_API_TOKEN` enables bearer-token auth for `POST /ask` when set
-- `SESSION_USERNAME` and `SESSION_PASSWORD_HASH` enable dedicated browser sign-in
-- `SESSION_SECRET` signs browser session cookies; defaults to the session password hash or API token if omitted
-- `SESSION_TTL_SECONDS` defaults to `43200` (12 hours)
-- `SESSION_COOKIE_SECURE` defaults to `false`; set it to `true` behind HTTPS
-- `LOG_LEVEL` defaults to `INFO`
-- `RATE_LIMIT_ENABLED` defaults to `true`
-- `RATE_LIMIT_MAX_REQUESTS` defaults to `20`
-- `RATE_LIMIT_WINDOW_SECONDS` defaults to `60`
-- `ELASTIC_INDEX` defaults to `rag-docs`
-- `ELASTIC_VERIFY_CERTS` defaults to `true`
-- `ELASTIC_REQUEST_TIMEOUT` defaults to `30`
-
-### 4. Generate chunks from the sample document
-
-```bash
-python ingestion/chunk_docs.py
-```
-
-This creates `data/chunks.json` from `data/docs.txt`.
-
-### 5. Verify Elasticsearch connectivity
-
-```bash
-python scripts/check_elasticsearch.py
-```
-
-### 6. Index the chunks
-
-```bash
-python scripts/index_chunks.py
-```
-
-To override the default input file or index name:
-
-```bash
-python scripts/index_chunks.py --input data/chunks.json --index rag-docs
-```
-
-### 7. Search indexed chunks
-
-```bash
-python scripts/search_chunks.py "What is Retrieval-Augmented Generation?" --top-k 3
-```
-
-### 8. Generate a grounded answer
-
-```bash
-python scripts/answer_question.py "How does RAG reduce hallucinations?" --top-k 3
-```
-
-### 9. Run tests
+### 3. Run the tests (no external services required)
 
 ```bash
 PYTHONPATH=. pytest
 ```
 
-### 10. Run the API locally
+### 4. Chunk the sample document
+
+```bash
+python ingestion/chunk_docs.py
+```
+
+Creates `data/chunks.json` from `data/docs.txt`.
+
+### 5. Verify Elasticsearch connectivity and index the chunks
+
+```bash
+python scripts/check_elasticsearch.py
+python scripts/index_chunks.py
+```
+
+### 6. Ask a question from the CLI
+
+```bash
+python scripts/answer_question.py "How does RAG reduce hallucinations?" --top-k 3
+```
+
+### 7. Run the API and browser UI
 
 ```bash
 uvicorn app.api:app --reload
 ```
 
-Example request:
+Open `http://127.0.0.1:8000/` for the browser UI, or call the API directly:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/ask \
@@ -220,7 +135,7 @@ curl -X POST http://127.0.0.1:8000/ask \
   -d '{"question":"How does RAG reduce hallucinations?","top_k":3}'
 ```
 
-To scope retrieval to specific source documents:
+Scope a question to specific source documents:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/ask \
@@ -237,113 +152,78 @@ curl -X POST http://127.0.0.1:8000/ask \
   -d '{"question":"How does RAG reduce hallucinations?","top_k":3}'
 ```
 
-Every API response also includes an `X-Request-ID` header. You can provide your
-own `X-Request-ID` value, or let the API generate one for tracing.
+Other useful endpoints:
 
-Use `GET /ready` for deployment readiness. It returns `200` when Elasticsearch,
-OpenAI, and auth configuration checks pass, and `503` when the app still needs
-setup.
+- `GET /health` — liveness
+- `GET /ready` — returns `200` when Elasticsearch, OpenAI, and auth config all check out, `503` otherwise
+- `GET /sources` — distinct indexed source names, for source-scoped queries (same auth as `/ask`)
+- `POST /session` / `DELETE /session` — browser sign-in with a shared token or dedicated username/password, backed by a signed HTTP-only cookie
 
-Use `GET /sources` to retrieve the distinct indexed source names available for
-source-scoped querying. It follows the same auth rules as `POST /ask`.
-
-Each returned source reference also includes a short excerpt from the retrieved
-chunk so reviewers can inspect the evidence behind an answer without opening the
-full document first.
-
-The browser UI can also authenticate by sending either the shared API token or
-dedicated session credentials to `POST /session`, which sets a signed,
-expiring HTTP-only cookie used for later `POST /ask` requests.
-
-To generate a `SESSION_PASSWORD_HASH` value:
+To generate a `SESSION_PASSWORD_HASH` for dedicated login credentials:
 
 ```bash
 python scripts/hash_password.py
 ```
 
-The `POST /ask` endpoint is also protected by a simple in-process rate limit by
-default. Tune the threshold with `RATE_LIMIT_MAX_REQUESTS` and
-`RATE_LIMIT_WINDOW_SECONDS`, or disable it with `RATE_LIMIT_ENABLED=false`.
+## Configuration reference
 
-### 11. Open the browser UI
-
-Start the API, then open `http://127.0.0.1:8000/` in a browser. The UI talks to
-the same `POST /ask` endpoint and supports optional browser sign-in with either
-a shared token or dedicated session credentials. You can also scope questions to
-an indexed source directly from the browser.
+| Variable | Default | Notes |
+|---|---|---|
+| `OPENAI_API_KEY` | _required_ | |
+| `OPENAI_MODEL` | `gpt-4o-mini` | |
+| `OPENAI_MAX_OUTPUT_TOKENS` | `400` | |
+| `ELASTIC_CLOUD_ID` / `ELASTIC_ENDPOINT` | _one required_ | connection target |
+| `ELASTIC_API_KEY` / (`ELASTIC_USERNAME` + `ELASTIC_PASSWORD`) | _one required_ | credentials |
+| `ELASTIC_INDEX` | `rag-docs` | |
+| `ELASTIC_VERIFY_CERTS` | `true` | |
+| `ELASTIC_REQUEST_TIMEOUT` | `30` | seconds |
+| `RAG_API_TOKEN` | unset | enables bearer-token auth for `/ask` when set |
+| `SESSION_USERNAME` / `SESSION_PASSWORD_HASH` | unset | enable dedicated browser login (set both together) |
+| `SESSION_SECRET` | falls back to password hash or API token | signs session cookies |
+| `SESSION_TTL_SECONDS` | `43200` (12h) | |
+| `SESSION_COOKIE_SECURE` | `false` | set `true` behind HTTPS |
+| `LOG_LEVEL` | `INFO` | |
+| `RATE_LIMIT_ENABLED` | `true` | |
+| `RATE_LIMIT_MAX_REQUESTS` | `20` | per window |
+| `RATE_LIMIT_WINDOW_SECONDS` | `60` | |
 
 ## Deployment
 
-### Run with the packaged entrypoint
-
-This uses `HOST` and `PORT` environment variables and is a better fit for
-deployment than the local `--reload` command:
+Run with the packaged entrypoint (reads `HOST`/`PORT`, a better fit than `--reload` for hosting):
 
 ```bash
 python -m app.server
 ```
 
-### Build a container image
+Or build and run the container:
 
 ```bash
 docker build -t rag-system-api .
-```
-
-### Run the container
-
-```bash
 docker run --rm -p 8000:8000 --env-file .env rag-system-api
 ```
 
-Most hosting platforms inject `PORT` automatically, and the container entrypoint
-will use it without any code changes.
+Most hosting platforms inject `PORT` automatically; the entrypoint picks it up without code changes.
 
-## Concrete Use Case Example
+## Testing
 
-Imagine an internal knowledge assistant for a support team.
+```bash
+PYTHONPATH=. pytest
+```
 
-1. Product guides, troubleshooting notes, and runbooks are ingested and chunked.
-2. Those chunks are indexed in Elasticsearch with source metadata.
-3. A support agent asks: "How do I check whether Elasticsearch is configured correctly?"
-4. The retrieval layer finds the most relevant chunks covering connection targets, authentication, and timeouts.
-5. The generation layer sends the question plus retrieved context to OpenAI.
-6. The LLM returns a concise answer grounded in that context, reducing guesswork and making the answer easier to trust.
+All 86 tests run against mocked Elasticsearch/OpenAI clients — no live credentials or network access needed. Tests run automatically on every push and pull request via [GitHub Actions](.github/workflows/tests.yml).
 
-That is the core value of this architecture: faster answers, less dependence on tribal knowledge, and more consistent support decisions.
+## Example use case
 
-## Transreport Use Case
+An internal knowledge base for an ops or support team — runbooks, troubleshooting guides, release notes, escalation paths — indexed and made queryable in natural language:
 
-For Transreport, this same architecture could power an internal knowledge assistant for Ops and Support teams.
+1. Docs are ingested, chunked, and indexed with source metadata.
+2. A teammate asks: "What's the escalation path for this issue type?"
+3. Retrieval finds the most relevant chunks; generation turns them into a grounded, cited answer.
 
-The assistant could index materials such as:
+The payoff is faster answers, less dependence on a few people's tribal knowledge, and more consistent responses across a team.
 
-- operational playbooks
-- support macros and troubleshooting guides
-- escalation paths
-- incident retrospectives
-- release notes
-- partner-specific processes and internal FAQs
+## Current status and next steps
 
-In practice, that means an Ops or Support teammate could ask questions like:
+Implemented: ingestion, indexing, BM25 retrieval with source filtering, grounded generation, a FastAPI service with session/token auth and rate limiting, a browser UI, readiness checks, structured logging, and a CI test suite.
 
-- "What is the escalation path for this issue type?"
-- "Has this problem happened before, and what was the resolution?"
-- "What changed in the latest release that might explain this behaviour?"
-- "Which internal process should I follow for this partner scenario?"
-
-Commercially, this matters because it can:
-
-- reduce average handling time for internal and customer-facing support work
-- shorten ramp-up time for new team members
-- make service decisions more consistent across shifts and teams
-- reduce interruptions to senior staff who currently act as the memory layer
-- turn internal documentation into an operational asset instead of a static archive
-
-For a company scaling Ops and Support, that is more than a technical improvement. It is a way to improve speed, quality, and knowledge reuse without linearly increasing headcount.
-
-## Current Status
-
-The repository currently covers the ingestion, indexing, retrieval, grounded answer-generation, API, deployment-entrypoint, basic observability, browser UI, and production-oriented session auth foundation of a RAG system. The next logical steps are:
-
-- hosted deployment of the full workflow behind an application boundary
-- richer end-user polish around the browser experience
+Not yet implemented, and the natural next steps: hosted deployment, and (per the design-decision note above) an optional embedding-based or hybrid retrieval path for queries that don't share vocabulary with the source documents.
